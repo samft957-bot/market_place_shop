@@ -26,8 +26,7 @@ const PORT = process.env.PORT || 3000;
 // Mot de passe vendeur
 // Pour Render, tu peux remplacer cette valeur par une variable
 // d'environnement ADMIN_PASSWORD.
-const ADMIN_PASSWORD =
-  process.env.ADMIN_PASSWORD || "samFT_2011";
+const ADMIN_PASSWORD=Samft_2011
 
 // Jetons vendeurs temporaires conservés en mémoire
 const sellerTokens = new Map();
