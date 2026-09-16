@@ -24,9 +24,17 @@ app.use(express.json({ limit: "10mb" }));
 const PORT = process.env.PORT || 3000;
 
 // Mot de passe vendeur
-// Pour Render, tu peux remplacer cette valeur par une variable
-// d'environnement ADMIN_PASSWORD.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "samft_2011";
+// IMPORTANT : ne JAMAIS écrire le mot de passe en clair dans ce fichier.
+// Il doit être défini uniquement dans la variable d'environnement
+// ADMIN_PASSWORD sur Render (onglet Environment de ton service).
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+if (!ADMIN_PASSWORD) {
+  console.warn(
+    "ATTENTION : la variable d'environnement ADMIN_PASSWORD n'est pas définie. " +
+    "Le mode vendeur restera inaccessible tant qu'elle ne sera pas configurée sur Render."
+  );
+}
 
 // Jetons vendeurs temporaires conservés en mémoire
 const sellerTokens = new Map();
@@ -128,6 +136,13 @@ function authenticateSeller(req, res, next) {
 
 app.post("/admin/login", (req, res) => {
   try {
+    if (!ADMIN_PASSWORD) {
+      return res.status(500).json({
+        error:
+          "ADMIN_PASSWORD n'est pas configuré sur le serveur. Ajoute cette variable d'environnement sur Render.",
+      });
+    }
+
     const { password } = req.body;
 
     if (
@@ -936,7 +951,4 @@ app.listen(
   PORT,
   () => {
     console.log(
-      `Serveur démarré sur le port ${PORT}`
-    );
-  }
-);
+      `Serveur 
