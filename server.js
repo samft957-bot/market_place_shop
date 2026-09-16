@@ -1,90 +1,797 @@
 // ============================================================
-// Backend "market place shop" : Stripe + stockage des produits
+// Backend "market place shop"
+// Stripe + produits + commandes + suivi bpost / Mondial Relay
 // ============================================================
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 
-// La clé secrète Stripe est lue depuis les variables d'environnement
-// Render (Settings > Environment > STRIPE_SECRET_KEY), jamais écrite ici.
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
+
 app.use(cors());
-app.use(express.json({ limit: "10mb" })); // 10mb pour accepter les photos en base64
+app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
-const PRODUCTS_FILE = path.join(__dirname, "products.json");
 
-// ---------- Route de test ----------
+const PRODUCTS_FILE = path.join(__dirname, "products.json");
+const ORDERS_FILE = path.join(__dirname, "orders.json");
+
+// ============================================================
+// OUTILS FICHIERS
+// ============================================================
+
+function readJsonFile(file, fallback) {
+  try {
+    if (!fs.existsSync(file)) {
+      return fallback;
+    }
+
+    const raw = fs.readFileSync(file, "utf8");
+
+    if (!raw.trim()) {
+      return fallback;
+    }
+
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`Erreur lecture ${file}:`, err);
+    return fallback;
+  }
+}
+
+function writeJsonFile(file, data) {
+  fs.writeFileSync(
+    file,
+    JSON.stringify(data, null, 2),
+    "utf8"
+  );
+}
+
+function getOrders() {
+  return readJsonFile(ORDERS_FILE, []);
+}
+
+function saveOrders(orders) {
+  writeJsonFile(ORDERS_FILE, orders);
+}
+
+// ============================================================
+// ID COMMANDE
+// ============================================================
+
+function generateOrderId() {
+  return (
+    "ORD-" +
+    Date.now() +
+    "-" +
+    Math.random()
+      .toString(36)
+      .slice(2, 8)
+      .toUpperCase()
+  );
+}
+
+// ============================================================
+// LIENS DE SUIVI
+// ============================================================
+
+function getTrackingUrl(carrier, trackingNumber) {
+  if (!trackingNumber) {
+    return null;
+  }
+
+  const number = encodeURIComponent(
+    trackingNumber.trim()
+  );
+
+  if (carrier === "bpost") {
+    return `https://track.bpost.cloud/btr/web/#/search?itemCode=${number}`;
+  }
+
+  if (carrier === "mondialrelay") {
+    return `https://www.mondialrelay.fr/suivi-de-colis/?numeroExpedition=${number}`;
+  }
+
+  return null;
+}
+
+// ============================================================
+// ROUTE DE TEST
+// ============================================================
+
 app.get("/", (req, res) => {
-  res.send("Backend market place shop : en ligne.");
+  res.json({
+    ok: true,
+    message: "Backend market place shop : en ligne.",
+  });
 });
 
-// ---------- Paiement Stripe ----------
+// ============================================================
+// STRIPE - CRÉER UNE SESSION DE PAIEMENT
+// ============================================================
+
 app.post("/create-checkout-session", async (req, res) => {
   try {
-    const { cart, successUrl, cancelUrl } = req.body;
+    const {
+      cart,
+      successUrl,
+      cancelUrl,
+    } = req.body;
+
     if (!Array.isArray(cart) || cart.length === 0) {
-      return res.status(400).json({ error: "Panier vide." });
+      return res.status(400).json({
+        error: "Panier vide.",
+      });
     }
 
     const line_items = cart.map((item) => ({
       price_data: {
         currency: "eur",
-        product_data: { name: item.name },
-        unit_amount: Math.round(item.price * 100), // Stripe attend des centimes
+
+        product_data: {
+          name: item.name,
+        },
+
+        unit_amount: Math.round(
+          Number(item.price) * 100
+        ),
       },
-      quantity: item.qty || 1,
+
+      quantity: Number(item.qty) || 1,
     }));
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      payment_method_types: ["card"],
-      line_items,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      shipping_address_collection: { allowed_countries: ["FR", "BE", "CH", "LU"] },
+    const session =
+      await stripe.checkout.sessions.create({
+        mode: "payment",
+
+        payment_method_types: ["card"],
+
+        line_items,
+
+        success_url: successUrl,
+
+        cancel_url: cancelUrl,
+
+        shipping_address_collection: {
+          allowed_countries: [
+            "FR",
+            "BE",
+            "CH",
+            "LU",
+          ],
+        },
+
+        metadata: {
+          marketplace: "market-place-shop",
+        },
+      });
+
+    res.json({
+      url: session.url,
+      sessionId: session.id,
     });
 
-    res.json({ url: session.url });
   } catch (err) {
-    console.error("Erreur création session Stripe", err);
-    res.status(500).json({ error: "Impossible de créer le paiement." });
+    console.error(
+      "Erreur création session Stripe :",
+      err
+    );
+
+    res.status(500).json({
+      error:
+        "Impossible de créer le paiement.",
+    });
   }
 });
 
-// ---------- Produits partagés ----------
-// ⚠️ Sur le plan gratuit de Render, ce fichier peut être réinitialisé si le
-// service redémarre après une inactivité (pas de disque permanent).
+// ============================================================
+// STRIPE - RÉCUPÉRER UNE SESSION
+// ============================================================
+
+app.get(
+  "/stripe-session/:sessionId",
+  async (req, res) => {
+    try {
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          req.params.sessionId
+        );
+
+      res.json({
+        id: session.id,
+
+        payment_status:
+          session.payment_status,
+
+        status:
+          session.status,
+
+        customer_email:
+          session.customer_details?.email ||
+          null,
+
+        customer_name:
+          session.customer_details?.name ||
+          null,
+
+        shipping_address:
+          session.shipping_details?.address ||
+          null,
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur récupération session Stripe :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de récupérer la commande Stripe.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// PRODUITS - RÉCUPÉRER
+// ============================================================
+
 app.get("/products", (req, res) => {
   try {
-    if (!fs.existsSync(PRODUCTS_FILE)) {
-      return res.json({ products: [] });
-    }
-    const raw = fs.readFileSync(PRODUCTS_FILE, "utf8");
-    res.json({ products: JSON.parse(raw) });
+    const products =
+      readJsonFile(PRODUCTS_FILE, []);
+
+    res.json({
+      products: Array.isArray(products)
+        ? products
+        : [],
+    });
+
   } catch (err) {
-    console.error("Erreur lecture products.json", err);
-    res.status(500).json({ error: "Impossible de lire les produits." });
+    console.error(
+      "Erreur lecture products.json :",
+      err
+    );
+
+    res.status(500).json({
+      error:
+        "Impossible de lire les produits.",
+    });
   }
 });
+
+// ============================================================
+// PRODUITS - SAUVEGARDER
+// ============================================================
 
 app.post("/products", (req, res) => {
   try {
     const { products } = req.body;
+
     if (!Array.isArray(products)) {
-      return res.status(400).json({ error: "Format invalide." });
+      return res.status(400).json({
+        error: "Format invalide.",
+      });
     }
-    fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2));
-    res.json({ ok: true });
+
+    writeJsonFile(
+      PRODUCTS_FILE,
+      products
+    );
+
+    res.json({
+      ok: true,
+    });
+
   } catch (err) {
-    console.error("Erreur écriture products.json", err);
-    res.status(500).json({ error: "Impossible de sauvegarder les produits." });
+    console.error(
+      "Erreur écriture products.json :",
+      err
+    );
+
+    res.status(500).json({
+      error:
+        "Impossible de sauvegarder les produits.",
+    });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+// ============================================================
+// COMMANDES - CRÉER
+// ============================================================
+
+app.post("/orders", (req, res) => {
+  try {
+    const {
+      stripeSessionId,
+      items,
+      customerEmail,
+      customerName,
+      shippingAddress,
+    } = req.body;
+
+    if (!stripeSessionId) {
+      return res.status(400).json({
+        error:
+          "stripeSessionId obligatoire.",
+      });
+    }
+
+    const orders = getOrders();
+
+    // Éviter les doublons
+    const existing = orders.find(
+      (order) =>
+        order.stripeSessionId ===
+        stripeSessionId
+    );
+
+    if (existing) {
+      return res.json({
+        ok: true,
+        order: existing,
+      });
+    }
+
+    const order = {
+      id: generateOrderId(),
+
+      stripeSessionId,
+
+      items: Array.isArray(items)
+        ? items
+        : [],
+
+      customer: {
+        email:
+          customerEmail || null,
+
+        name:
+          customerName || null,
+
+        shippingAddress:
+          shippingAddress || null,
+      },
+
+      paymentStatus: "paid",
+
+      shipping: {
+        carrier: null,
+
+        trackingNumber: null,
+
+        trackingUrl: null,
+
+        status: "not_shipped",
+      },
+
+      createdAt:
+        new Date().toISOString(),
+
+      updatedAt:
+        new Date().toISOString(),
+    };
+
+    orders.push(order);
+
+    saveOrders(orders);
+
+    res.status(201).json({
+      ok: true,
+      order,
+    });
+
+  } catch (err) {
+    console.error(
+      "Erreur création commande :",
+      err
+    );
+
+    res.status(500).json({
+      error:
+        "Impossible de créer la commande.",
+    });
+  }
 });
+
+// ============================================================
+// COMMANDES - TOUTES LES COMMANDES
+// ============================================================
+
+app.get("/orders", (req, res) => {
+  try {
+    const orders = getOrders();
+
+    res.json({
+      orders,
+    });
+
+  } catch (err) {
+    console.error(
+      "Erreur lecture commandes :",
+      err
+    );
+
+    res.status(500).json({
+      error:
+        "Impossible de lire les commandes.",
+    });
+  }
+});
+
+// ============================================================
+// COMMANDES - UNE COMMANDE
+// ============================================================
+
+app.get(
+  "/orders/:orderId",
+  (req, res) => {
+    try {
+      const orders = getOrders();
+
+      const order = orders.find(
+        (item) =>
+          item.id ===
+          req.params.orderId
+      );
+
+      if (!order) {
+        return res.status(404).json({
+          error:
+            "Commande introuvable.",
+        });
+      }
+
+      res.json({
+        order,
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur récupération commande :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de récupérer la commande.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// AJOUTER UN NUMÉRO DE SUIVI
+// ============================================================
+//
+// IMPORTANT :
+// Le numéro doit être le vrai numéro fourni
+// par bpost ou Mondial Relay.
+//
+// Cette route ne fabrique aucun faux numéro.
+// ============================================================
+
+app.post(
+  "/orders/:orderId/tracking",
+  (req, res) => {
+    try {
+      const {
+        carrier,
+        trackingNumber,
+        status,
+      } = req.body;
+
+      const allowedCarriers = [
+        "bpost",
+        "mondialrelay",
+      ];
+
+      if (
+        !allowedCarriers.includes(
+          carrier
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            "Transporteur invalide. Utilise bpost ou mondialrelay.",
+        });
+      }
+
+      if (
+        typeof trackingNumber !==
+          "string" ||
+        trackingNumber.trim()
+          .length < 3
+      ) {
+        return res.status(400).json({
+          error:
+            "Numéro de suivi invalide.",
+        });
+      }
+
+      const orders = getOrders();
+
+      const index =
+        orders.findIndex(
+          (order) =>
+            order.id ===
+            req.params.orderId
+        );
+
+      if (index === -1) {
+        return res.status(404).json({
+          error:
+            "Commande introuvable.",
+        });
+      }
+
+      const cleanTrackingNumber =
+        trackingNumber.trim();
+
+      orders[index].shipping = {
+        carrier,
+
+        trackingNumber:
+          cleanTrackingNumber,
+
+        trackingUrl:
+          getTrackingUrl(
+            carrier,
+            cleanTrackingNumber
+          ),
+
+        status:
+          status || "shipped",
+      };
+
+      orders[index].updatedAt =
+        new Date().toISOString();
+
+      saveOrders(orders);
+
+      res.json({
+        ok: true,
+        order: orders[index],
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur ajout suivi :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible d'enregistrer le suivi.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// MODIFIER LE STATUT D'EXPÉDITION
+// ============================================================
+
+app.patch(
+  "/orders/:orderId/shipping-status",
+  (req, res) => {
+    try {
+      const { status } =
+        req.body;
+
+      const allowedStatuses = [
+        "not_shipped",
+        "label_created",
+        "shipped",
+        "in_transit",
+        "delivered",
+        "cancelled",
+      ];
+
+      if (
+        !allowedStatuses.includes(
+          status
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            "Statut d'expédition invalide.",
+        });
+      }
+
+      const orders = getOrders();
+
+      const index =
+        orders.findIndex(
+          (order) =>
+            order.id ===
+            req.params.orderId
+        );
+
+      if (index === -1) {
+        return res.status(404).json({
+          error:
+            "Commande introuvable.",
+        });
+      }
+
+      if (
+        !orders[index].shipping
+      ) {
+        orders[index].shipping = {};
+      }
+
+      orders[index].shipping.status =
+        status;
+
+      orders[index].updatedAt =
+        new Date().toISOString();
+
+      saveOrders(orders);
+
+      res.json({
+        ok: true,
+        order: orders[index],
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur modification statut :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de modifier le statut.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// SUIVI CLIENT
+// ============================================================
+
+app.get(
+  "/tracking/:orderId",
+  (req, res) => {
+    try {
+      const orders = getOrders();
+
+      const order = orders.find(
+        (item) =>
+          item.id ===
+          req.params.orderId
+      );
+
+      if (!order) {
+        return res.status(404).json({
+          error:
+            "Commande introuvable.",
+        });
+      }
+
+      res.json({
+        orderId: order.id,
+
+        shipping:
+          order.shipping || {
+            carrier: null,
+            trackingNumber: null,
+            trackingUrl: null,
+            status: "not_shipped",
+          },
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur récupération suivi :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de récupérer le suivi.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// CRÉATION D'EXPÉDITION
+// ============================================================
+//
+// Cette route est préparée pour la connexion aux API
+// officielles bpost / Mondial Relay.
+//
+// Elle ne crée PAS encore une vraie étiquette.
+//
+// ============================================================
+
+app.post(
+  "/shipping/create",
+  async (req, res) => {
+    try {
+      const {
+        carrier,
+        orderId,
+      } = req.body;
+
+      if (
+        ![
+          "bpost",
+          "mondialrelay",
+        ].includes(carrier)
+      ) {
+        return res.status(400).json({
+          error:
+            "Transporteur invalide.",
+        });
+      }
+
+      if (!orderId) {
+        return res.status(400).json({
+          error:
+            "orderId obligatoire.",
+        });
+      }
+
+      const orders = getOrders();
+
+      const order = orders.find(
+        (item) =>
+          item.id === orderId
+      );
+
+      if (!order) {
+        return res.status(404).json({
+          error:
+            "Commande introuvable.",
+        });
+      }
+
+      // ======================================================
+      // À REMPLACER PAR L'APPEL API OFFICIEL
+      // DU TRANSPORTEUR.
+      // ======================================================
+
+      return res.status(501).json({
+        error:
+          "Création automatique de l'expédition non configurée. Il faut connecter les identifiants/API officiels du transporteur.",
+
+        carrier,
+
+        orderId,
+      });
+
+    } catch (err) {
+      console.error(
+        "Erreur création expédition :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de créer l'expédition.",
+      });
+    }
+  }
+);
+
+// ============================================================
+// DÉMARRAGE DU SERVEUR
+// ============================================================
+
+app.listen(
+  PORT,
+  () => {
+    console.log(
+      `Serveur démarré sur le port ${PORT}`
+    );
+  }
+);
