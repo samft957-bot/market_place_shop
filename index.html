@@ -578,13 +578,16 @@ async function toggleSeller(){
 
 function addToCart(id){
   const p = state.products.find(x => x.id === id);
+  if (!p) return;
+
   const already = state.cart.find(x => x.id === id);
-  if (already){ state.cartOpen = true; render(); return; }
-  if (state.cart.length >= 1){
-    alert("Vous ne pouvez acheter qu'un seul article à la fois. Retirez l'article de votre panier pour en choisir un autre.");
-    state.cartOpen = true; render(); return;
+
+  if (already){
+    already.qty += 1;
+  } else {
+    state.cart.push({ ...p, qty: 1 });
   }
-  state.cart.push({ ...p, qty: 1 });
+
   state.cartOpen = true;
   render();
 }
@@ -682,7 +685,40 @@ async function payWithStripe(){
 function backToShopAfterOrder(){ state.order = null; state.view = "shop"; render(); }
 
 // ---------- Recherche, filtres, tri ----------
-function setQuery(v){ state.query = v; render(); }
+function setQuery(v){
+  state.query = v;
+
+  // Met à jour uniquement la partie boutique pour que le champ de recherche
+  // garde le focus et que l'on puisse écrire autant de caractères que voulu.
+  const main = document.getElementById('main');
+  if (!main || state.view !== "shop") {
+    render();
+    return;
+  }
+
+  const active = document.activeElement;
+  const search = active && active.matches('.filter-bar .search input') ? active : null;
+  const cursorStart = search ? search.selectionStart : null;
+  const cursorEnd = search ? search.selectionEnd : null;
+
+  main.innerHTML = renderShop();
+
+  const newSearch = main.querySelector('.filter-bar .search input');
+  if (newSearch) {
+    newSearch.focus();
+    if (cursorStart !== null && cursorEnd !== null) {
+      newSearch.setSelectionRange(cursorStart, cursorEnd);
+    }
+  }
+
+  // Le panier reste à jour sans fermer le champ de recherche.
+  const drawer = document.getElementById('cartDrawer');
+  const overlay = document.getElementById('cartOverlay');
+  drawer.innerHTML = renderCartDrawer();
+  drawer.classList.toggle('open', state.cartOpen);
+  overlay.classList.toggle('open', state.cartOpen);
+  refreshAds();
+}
 function setCategoryFilter(c){ state.categoryFilter = c; render(); }
 function setSortBy(v){ state.sortBy = v; render(); }
 
@@ -755,12 +791,9 @@ function productCardHtml(p, sellerView){
   const photo = p.photo ? `<img src="${p.photo}" alt="${escapeHtml(p.name)}" loading="lazy">` : `<div class="placeholder">Pas de photo</div>`;
   const buyAction = p.paymentLink ? `window.open('${p.paymentLink.replace(/'/g, "&#39;")}', '_blank')` : `addToCart('${p.id}')`;
   const inCart = state.cart.some(x => x.id === p.id);
-  const cartFullWithOther = state.cart.length > 0 && !inCart;
   let buyBtn;
   if (sellerView){ buyBtn = ""; }
-  else if (inCart){ buyBtn = `<button class="btn" disabled>Dans le panier</button>`; }
-  else if (cartFullWithOther && !p.paymentLink){ buyBtn = `<button class="btn" disabled title="Un seul article à la fois">Panier occupé</button>`; }
-  else { buyBtn = `<button class="btn btn-accent" onclick="${buyAction}">Acheter</button>`; }
+  else { buyBtn = `<button class="btn btn-accent" onclick="${buyAction}">${inCart ? "Ajouter encore" : "Ajouter au panier"}</button>`; }
   const actions = sellerView
     ? `<div style="display:flex;gap:6px;">
          <button class="btn btn-sm" onclick="startEdit('${p.id}')">Modifier</button>
@@ -910,7 +943,7 @@ function renderCartDrawer(){
       <button class="drawer-close" onclick="toggleCart()" aria-label="Fermer le panier">×</button>
     </div>
     <div class="drawer-body">${body}
-      ${state.cart.length > 0 ? `<p class="cart-limit-note">Un seul article peut être commandé à la fois.</p>` : ""}
+      ${state.cart.length > 0 ? `<p class="cart-limit-note">Vous pouvez ajouter plusieurs articles à votre panier.</p>` : ""}
     </div>
     <div class="drawer-foot">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
