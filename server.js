@@ -1,21 +1,43 @@
 // ============================================================
 // Backend "market place shop"
 // Stripe + produits + commandes + suivi bpost / Mondial Relay
+// + authentification vendeur
 // ============================================================
 
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 
+// ============================================================
+// CONFIGURATION
+// ============================================================
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
+
+// Mot de passe vendeur
+// Pour Render, tu peux remplacer cette valeur par une variable
+// d'environnement ADMIN_PASSWORD.
+const ADMIN_PASSWORD =
+  process.env.ADMIN_PASSWORD || "samFT_2011";
+
+// Jetons vendeurs temporaires conservés en mémoire
+const sellerTokens = new Map();
+
+// Durée d'une session vendeur : 24 heures
+const TOKEN_DURATION = 24 * 60 * 60 * 1000;
+
+// ============================================================
+// FICHIERS
+// ============================================================
 
 const PRODUCTS_FILE = path.join(__dirname, "products.json");
 const ORDERS_FILE = path.join(__dirname, "orders.json");
@@ -58,6 +80,113 @@ function getOrders() {
 function saveOrders(orders) {
   writeJsonFile(ORDERS_FILE, orders);
 }
+
+// ============================================================
+// AUTHENTIFICATION VENDEUR
+// ============================================================
+
+// Vérifie le jeton envoyé par le navigateur
+function authenticateSeller(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      error: "Authentification vendeur requise.",
+    });
+  }
+
+  const token = authHeader.slice(7).trim();
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Jeton vendeur manquant.",
+    });
+  }
+
+  const session = sellerTokens.get(token);
+
+  if (!session) {
+    return res.status(401).json({
+      error: "Session vendeur invalide.",
+    });
+  }
+
+  if (Date.now() > session.expiresAt) {
+    sellerTokens.delete(token);
+
+    return res.status(401).json({
+      error: "Session vendeur expirée.",
+    });
+  }
+
+  req.seller = true;
+  next();
+}
+
+// ============================================================
+// CONNEXION VENDEUR
+// ============================================================
+
+app.post("/admin/login", (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (
+      typeof password !== "string" ||
+      password.length === 0
+    ) {
+      return res.status(400).json({
+        error: "Mot de passe obligatoire.",
+      });
+    }
+
+    if (password !== ADMIN_PASSWORD) {
+      return res.status(401).json({
+        error: "Mot de passe incorrect.",
+      });
+    }
+
+    // Création d'un jeton aléatoire
+    const token = crypto.randomBytes(32).toString("hex");
+
+    const expiresAt = Date.now() + TOKEN_DURATION;
+
+    sellerTokens.set(token, {
+      expiresAt,
+    });
+
+    res.json({
+      ok: true,
+      token,
+      expiresAt,
+    });
+  } catch (err) {
+    console.error("Erreur connexion vendeur :", err);
+
+    res.status(500).json({
+      error: "Impossible de vérifier le mot de passe.",
+    });
+  }
+});
+
+// ============================================================
+// DÉCONNEXION VENDEUR
+// ============================================================
+
+app.post(
+  "/admin/logout",
+  authenticateSeller,
+  (req, res) => {
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.slice(7).trim();
+
+    sellerTokens.delete(token);
+
+    res.json({
+      ok: true,
+    });
+  }
+);
 
 // ============================================================
 // ID COMMANDE
@@ -114,79 +243,81 @@ app.get("/", (req, res) => {
 // STRIPE - CRÉER UNE SESSION DE PAIEMENT
 // ============================================================
 
-app.post("/create-checkout-session", async (req, res) => {
-  try {
-    const {
-      cart,
-      successUrl,
-      cancelUrl,
-    } = req.body;
+app.post(
+  "/create-checkout-session",
+  async (req, res) => {
+    try {
+      const {
+        cart,
+        successUrl,
+        cancelUrl,
+      } = req.body;
 
-    if (!Array.isArray(cart) || cart.length === 0) {
-      return res.status(400).json({
-        error: "Panier vide.",
+      if (!Array.isArray(cart) || cart.length === 0) {
+        return res.status(400).json({
+          error: "Panier vide.",
+        });
+      }
+
+      const line_items = cart.map((item) => ({
+        price_data: {
+          currency: "eur",
+
+          product_data: {
+            name: item.name,
+          },
+
+          unit_amount: Math.round(
+            Number(item.price) * 100
+          ),
+        },
+
+        quantity: Number(item.qty) || 1,
+      }));
+
+      const session =
+        await stripe.checkout.sessions.create({
+          mode: "payment",
+
+          payment_method_types: ["card"],
+
+          line_items,
+
+          success_url: successUrl,
+
+          cancel_url: cancelUrl,
+
+          shipping_address_collection: {
+            allowed_countries: [
+              "FR",
+              "BE",
+              "CH",
+              "LU",
+            ],
+          },
+
+          metadata: {
+            marketplace: "market-place-shop",
+          },
+        });
+
+      res.json({
+        url: session.url,
+        sessionId: session.id,
+      });
+    } catch (err) {
+      console.error(
+        "Erreur création session Stripe :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de créer le paiement.",
       });
     }
-
-    const line_items = cart.map((item) => ({
-      price_data: {
-        currency: "eur",
-
-        product_data: {
-          name: item.name,
-        },
-
-        unit_amount: Math.round(
-          Number(item.price) * 100
-        ),
-      },
-
-      quantity: Number(item.qty) || 1,
-    }));
-
-    const session =
-      await stripe.checkout.sessions.create({
-        mode: "payment",
-
-        payment_method_types: ["card"],
-
-        line_items,
-
-        success_url: successUrl,
-
-        cancel_url: cancelUrl,
-
-        shipping_address_collection: {
-          allowed_countries: [
-            "FR",
-            "BE",
-            "CH",
-            "LU",
-          ],
-        },
-
-        metadata: {
-          marketplace: "market-place-shop",
-        },
-      });
-
-    res.json({
-      url: session.url,
-      sessionId: session.id,
-    });
-
-  } catch (err) {
-    console.error(
-      "Erreur création session Stripe :",
-      err
-    );
-
-    res.status(500).json({
-      error:
-        "Impossible de créer le paiement.",
-    });
   }
-});
+);
 
 // ============================================================
 // STRIPE - RÉCUPÉRER UNE SESSION
@@ -222,7 +353,6 @@ app.get(
           session.shipping_details?.address ||
           null,
       });
-
     } catch (err) {
       console.error(
         "Erreur récupération session Stripe :",
@@ -241,6 +371,7 @@ app.get(
 // PRODUITS - RÉCUPÉRER
 // ============================================================
 
+// Public : tout le monde peut voir les produits
 app.get("/products", (req, res) => {
   try {
     const products =
@@ -251,7 +382,6 @@ app.get("/products", (req, res) => {
         ? products
         : [],
     });
-
   } catch (err) {
     console.error(
       "Erreur lecture products.json :",
@@ -269,37 +399,41 @@ app.get("/products", (req, res) => {
 // PRODUITS - SAUVEGARDER
 // ============================================================
 
-app.post("/products", (req, res) => {
-  try {
-    const { products } = req.body;
+// PROTÉGÉ : seul le vendeur connecté peut modifier
+app.post(
+  "/products",
+  authenticateSeller,
+  (req, res) => {
+    try {
+      const { products } = req.body;
 
-    if (!Array.isArray(products)) {
-      return res.status(400).json({
-        error: "Format invalide.",
+      if (!Array.isArray(products)) {
+        return res.status(400).json({
+          error: "Format invalide.",
+        });
+      }
+
+      writeJsonFile(
+        PRODUCTS_FILE,
+        products
+      );
+
+      res.json({
+        ok: true,
+      });
+    } catch (err) {
+      console.error(
+        "Erreur écriture products.json :",
+        err
+      );
+
+      res.status(500).json({
+        error:
+          "Impossible de sauvegarder les produits.",
       });
     }
-
-    writeJsonFile(
-      PRODUCTS_FILE,
-      products
-    );
-
-    res.json({
-      ok: true,
-    });
-
-  } catch (err) {
-    console.error(
-      "Erreur écriture products.json :",
-      err
-    );
-
-    res.status(500).json({
-      error:
-        "Impossible de sauvegarder les produits.",
-    });
   }
-});
+);
 
 // ============================================================
 // COMMANDES - CRÉER
@@ -385,7 +519,6 @@ app.post("/orders", (req, res) => {
       ok: true,
       order,
     });
-
   } catch (err) {
     console.error(
       "Erreur création commande :",
@@ -403,33 +536,39 @@ app.post("/orders", (req, res) => {
 // COMMANDES - TOUTES LES COMMANDES
 // ============================================================
 
-app.get("/orders", (req, res) => {
-  try {
-    const orders = getOrders();
+// Protégé : les commandes ne doivent pas être publiques
+app.get(
+  "/orders",
+  authenticateSeller,
+  (req, res) => {
+    try {
+      const orders = getOrders();
 
-    res.json({
-      orders,
-    });
+      res.json({
+        orders,
+      });
+    } catch (err) {
+      console.error(
+        "Erreur lecture commandes :",
+        err
+      );
 
-  } catch (err) {
-    console.error(
-      "Erreur lecture commandes :",
-      err
-    );
-
-    res.status(500).json({
-      error:
-        "Impossible de lire les commandes.",
-    });
+      res.status(500).json({
+        error:
+          "Impossible de lire les commandes.",
+      });
+    }
   }
-});
+);
 
 // ============================================================
 // COMMANDES - UNE COMMANDE
 // ============================================================
 
+// Protégé vendeur
 app.get(
   "/orders/:orderId",
+  authenticateSeller,
   (req, res) => {
     try {
       const orders = getOrders();
@@ -450,7 +589,6 @@ app.get(
       res.json({
         order,
       });
-
     } catch (err) {
       console.error(
         "Erreur récupération commande :",
@@ -478,6 +616,7 @@ app.get(
 
 app.post(
   "/orders/:orderId/tracking",
+  authenticateSeller,
   (req, res) => {
     try {
       const {
@@ -558,7 +697,6 @@ app.post(
         ok: true,
         order: orders[index],
       });
-
     } catch (err) {
       console.error(
         "Erreur ajout suivi :",
@@ -579,6 +717,7 @@ app.post(
 
 app.patch(
   "/orders/:orderId/shipping-status",
+  authenticateSeller,
   (req, res) => {
     try {
       const { status } =
@@ -638,7 +777,6 @@ app.patch(
         ok: true,
         order: orders[index],
       });
-
     } catch (err) {
       console.error(
         "Erreur modification statut :",
@@ -657,6 +795,7 @@ app.patch(
 // SUIVI CLIENT
 // ============================================================
 
+// Public : un client peut consulter son suivi
 app.get(
   "/tracking/:orderId",
   (req, res) => {
@@ -687,7 +826,6 @@ app.get(
             status: "not_shipped",
           },
       });
-
     } catch (err) {
       console.error(
         "Erreur récupération suivi :",
@@ -710,11 +848,11 @@ app.get(
 // officielles bpost / Mondial Relay.
 //
 // Elle ne crée PAS encore une vraie étiquette.
-//
 // ============================================================
 
 app.post(
   "/shipping/create",
+  authenticateSeller,
   async (req, res) => {
     try {
       const {
@@ -755,11 +893,6 @@ app.post(
         });
       }
 
-      // ======================================================
-      // À REMPLACER PAR L'APPEL API OFFICIEL
-      // DU TRANSPORTEUR.
-      // ======================================================
-
       return res.status(501).json({
         error:
           "Création automatique de l'expédition non configurée. Il faut connecter les identifiants/API officiels du transporteur.",
@@ -768,7 +901,6 @@ app.post(
 
         orderId,
       });
-
     } catch (err) {
       console.error(
         "Erreur création expédition :",
@@ -782,6 +914,20 @@ app.post(
     }
   }
 );
+
+// ============================================================
+// NETTOYAGE DES ANCIENS TOKENS
+// ============================================================
+
+setInterval(() => {
+  const now = Date.now();
+
+  for (const [token, session] of sellerTokens.entries()) {
+    if (now > session.expiresAt) {
+      sellerTokens.delete(token);
+    }
+  }
+}, 60 * 60 * 1000);
 
 // ============================================================
 // DÉMARRAGE DU SERVEUR
