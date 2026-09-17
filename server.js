@@ -24,17 +24,11 @@ app.use(express.json({ limit: "10mb" }));
 const PORT = process.env.PORT || 3000;
 
 // Mot de passe vendeur
-// IMPORTANT : ne JAMAIS écrire le mot de passe en clair dans ce fichier.
-// Il doit être défini uniquement dans la variable d'environnement
-// ADMIN_PASSWORD sur Render (onglet Environment de ton service).
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
-if (!ADMIN_PASSWORD) {
-  console.warn(
-    "ATTENTION : la variable d'environnement ADMIN_PASSWORD n'est pas définie. " +
-    "Le mode vendeur restera inaccessible tant qu'elle ne sera pas configurée sur Render."
-  );
-}
+// ATTENTION SÉCURITÉ : ce mot de passe est écrit en clair ci-dessous.
+// Si ce dépôt GitHub est public, n'importe qui peut le lire et se
+// connecter en mode vendeur. Dès que possible, retire cette ligne et
+// utilise uniquement la variable d'environnement ADMIN_PASSWORD sur Render.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "samFT_2011";
 
 // Jetons vendeurs temporaires conservés en mémoire
 const sellerTokens = new Map();
