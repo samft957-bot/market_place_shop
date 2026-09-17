@@ -399,7 +399,8 @@ let state = {
   cartOpen: false,
   view: "shop",
   sellerMode: false,
-  sellerToken: null,
+  sellerToken: localStorage.getItem("mps_seller_token") || null,
+  sellerTokenExpiresAt: Number(localStorage.getItem("mps_seller_token_expires_at") || 0),
   editing: null,
   order: null,
   formPhoto: null,
@@ -422,7 +423,12 @@ async function saveProductsToStorage(){
     });
     if (res.status === 401){
       alert("Votre session vendeur a expiré. Reconnectez-vous pour enregistrer vos modifications.");
-      state.sellerMode = false; state.sellerToken = null; render();
+      state.sellerMode = false;
+      state.sellerToken = null;
+      state.sellerTokenExpiresAt = 0;
+      localStorage.removeItem("mps_seller_token");
+      localStorage.removeItem("mps_seller_token_expires_at");
+      render();
       return;
     }
     if (!res.ok) throw new Error("Réponse serveur non OK : " + res.status);
@@ -552,8 +558,14 @@ function toggleCart(){ state.cartOpen = !state.cartOpen; render(); }
 // ajouter la route /admin/login à votre serveur.
 async function toggleSeller(){
   if (state.sellerMode){
-    state.sellerMode = false; state.sellerToken = null;
-    state.view = "shop"; state.editing = null; render();
+    state.sellerMode = false;
+    state.sellerToken = null;
+    state.sellerTokenExpiresAt = 0;
+    localStorage.removeItem("mps_seller_token");
+    localStorage.removeItem("mps_seller_token_expires_at");
+    state.view = "shop";
+    state.editing = null;
+    render();
     return;
   }
   const pwd = window.prompt("Mot de passe vendeur :");
@@ -568,6 +580,12 @@ async function toggleSeller(){
     const data = await res.json();
     if (!data.token){ alert("Réponse du serveur inattendue."); return; }
     state.sellerToken = data.token;
+    state.sellerTokenExpiresAt = Number(data.expiresAt || 0);
+
+    // Conserver la session vendeur après un actualisation de la page.
+    localStorage.setItem("mps_seller_token", data.token);
+    localStorage.setItem("mps_seller_token_expires_at", String(state.sellerTokenExpiresAt));
+
     state.sellerMode = true;
     state.view = "admin";
     state.editing = null;
@@ -1103,6 +1121,20 @@ function render(){
 
 (async function init(){
   document.getElementById('main').innerHTML = `<p style="opacity:.6;padding:40px 0;text-align:center;">Chargement des articles…</p>`;
+
+  // Restaurer automatiquement la session vendeur après un actualisation.
+  if (state.sellerToken) {
+    if (state.sellerTokenExpiresAt && Date.now() >= state.sellerTokenExpiresAt) {
+      state.sellerToken = null;
+      state.sellerTokenExpiresAt = 0;
+      localStorage.removeItem("mps_seller_token");
+      localStorage.removeItem("mps_seller_token_expires_at");
+    } else {
+      state.sellerMode = true;
+      state.view = "admin";
+    }
+  }
+
   await loadProductsFromStorage();
   render();
 })();
