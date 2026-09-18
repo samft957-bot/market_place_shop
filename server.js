@@ -17,6 +17,16 @@
 // jamais et garde les données indéfiniment, quel que soit ce qui
 // se passe côté Render.
 //
+// CORRECTIF (celui-ci) :
+// Avant, le serveur attendait que MongoDB soit connecté avant
+// d'ouvrir le port HTTP (app.listen était dans le .then() de
+// connectToDatabase()). Si la connexion Mongo était lente ou
+// bloquée (mauvaise IP whitelist, identifiants incorrects...),
+// Render ne détectait jamais de port ouvert et affichait :
+// "reached, no open ports detected".
+// Maintenant, app.listen() est appelé immédiatement, et la
+// connexion à MongoDB se fait en parallèle, sans bloquer le port.
+//
 // ÉTAPES POUR FAIRE FONCTIONNER CETTE VERSION :
 // 1. Crée un compte gratuit sur https://www.mongodb.com/cloud/atlas/register
 // 2. Crée un cluster gratuit ("M0").
@@ -27,6 +37,8 @@
 // 5. Dans "Database" > "Connect" > "Drivers", copie l'URI de connexion,
 //    qui ressemble à :
 //    mongodb+srv://<utilisateur>:<mot-de-passe>@cluster0.xxxxx.mongodb.net/
+//    (si le mot de passe contient des caractères spéciaux comme @ : / ?,
+//    encode-les en URL avant de les mettre dans l'URI)
 // 6. Sur Render, dans les "Environment Variables" de ton service,
 //    ajoute une variable MONGODB_URI avec cette URI complète
 //    (en remplaçant <utilisateur> et <mot-de-passe> par les vraies valeurs).
@@ -84,7 +96,9 @@ async function connectToDatabase() {
   }
 
   try {
-    mongoClient = new MongoClient(MONGODB_URI);
+    mongoClient = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+    });
     await mongoClient.connect();
     db = mongoClient.db(DB_NAME);
     console.log("Connecté à MongoDB Atlas (base : " + DB_NAME + ")");
@@ -93,7 +107,12 @@ async function connectToDatabase() {
     await db.collection("orders").createIndex({ id: 1 }, { unique: true });
     await db.collection("orders").createIndex({ stripeSessionId: 1 });
   } catch (err) {
-    console.error("Erreur de connexion à MongoDB Atlas :", err);
+    console.error("Erreur de connexion à MongoDB Atlas :", err.message);
+    console.error(
+      "Vérifie : 1) MONGODB_URI correct sur Render, " +
+      "2) le mot de passe ne contient pas de caractères non encodés, " +
+      "3) 0.0.0.0/0 est bien ajouté dans Network Access sur MongoDB Atlas."
+    );
   }
 }
 
@@ -738,12 +757,23 @@ setInterval(() => {
 // ============================================================
 // DÉMARRAGE DU SERVEUR
 // ============================================================
+//
+// IMPORTANT : on ouvre le port HTTP immédiatement, sans attendre
+// MongoDB. Render a besoin de détecter un port ouvert rapidement
+// après le démarrage ; si on attendait la connexion Mongo (qui peut
+// être lente ou bloquée), Render finissait par abandonner avec
+// l'erreur "no open ports detected".
+//
+// Tant que MongoDB n'est pas connecté, /products et /orders renvoient
+// une erreur 503 claire (via requireDatabase), mais le serveur répond
+// bien et Render considère le déploiement comme réussi.
 
-connectToDatabase().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Serveur démarré sur le port ${PORT}`);
-  });
+app.listen(PORT, () => {
+  console.log(`Serveur démarré sur le port ${PORT}`);
 });
+
+// La connexion à MongoDB se fait en parallèle, sans bloquer le port.
+connectToDatabase();
 
 // ============================================================
 // NOTE — package.json
