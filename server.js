@@ -19,7 +19,8 @@
 //    crée la commande dès que le paiement est confirmé. L'ancienne
 //    route publique POST /orders (qui permettait de créer de fausses
 //    commandes) est supprimée.
-// 5. CORS RESTREINT à ton site GitHub Pages (modifiable via ALLOWED_ORIGINS).
+// 5. CORS RESTREINT à ton site (Cloudflare Pages + ancien GitHub Pages),
+//    modifiable via ALLOWED_ORIGINS.
 // 6. VALIDATION des produits enregistrés par le vendeur.
 // 7. Reconnexion automatique à MongoDB si la première tentative échoue.
 //
@@ -30,7 +31,10 @@
 //   MONGODB_URI             URI MongoDB Atlas complète
 //   ADMIN_PASSWORD          mot de passe vendeur                          [OBLIGATOIRE]
 //   ALLOWED_ORIGINS         (optionnel) origines autorisées, séparées par
-//                           des virgules. Défaut : https://samft957-bot.github.io
+//                           des virgules. Défaut : https://market-place-shop.pages.dev
+//                           et https://samft957-bot.github.io
+//                           ATTENTION : si cette variable existe déjà sur Render,
+//                           elle remplace le défaut : mets-y la nouvelle adresse.
 //   MONGODB_DB_NAME         (optionnel) défaut : marketplace
 //
 // Aucune nouvelle dépendance npm : express, cors, stripe, mongodb.
@@ -61,11 +65,14 @@ app.set("trust proxy", 1);
 
 const PORT = process.env.PORT || 3000;
 
+// Adresses autorisées à appeler ce serveur (et à servir d'adresse de retour
+// après un paiement Stripe). Sans slash final et sans chemin.
 const ALLOWED_ORIGINS = (
-  process.env.ALLOWED_ORIGINS || "https://samft957-bot.github.io"
+  process.env.ALLOWED_ORIGINS ||
+  "https://market-place-shop.pages.dev,https://samft957-bot.github.io"
 )
   .split(",")
-  .map((s) => s.trim())
+  .map((s) => s.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
 // Mot de passe vendeur : UNIQUEMENT via variable d'environnement.
