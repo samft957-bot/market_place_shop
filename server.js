@@ -2,6 +2,7 @@
 // Backend "market place shop"
 // Stripe + produits + commandes + suivi bpost / Mondial Relay
 // + authentification vendeur + stockage permanent MongoDB Atlas
+// + formulaire de contact (email)
 // ============================================================
 //
 // CE QUI A CHANGÉ DANS CETTE VERSION
@@ -23,11 +24,12 @@
 //    modifiable via ALLOWED_ORIGINS.
 // 6. VALIDATION des produits enregistrés par le vendeur.
 // 7. Reconnexion automatique à MongoDB si la première tentative échoue.
+// 8. FORMULAIRE DE CONTACT : POST /contact envoie un vrai email via Gmail. [NOUVEAU]
 //
 // VARIABLES D'ENVIRONNEMENT À AVOIR SUR RENDER
 // ------------------------------------------------------------
 //   STRIPE_SECRET_KEY       clé secrète Stripe (sk_live_... ou sk_test_...)
-//   STRIPE_WEBHOOK_SECRET   secret de signature du webhook (whsec_...)  [NOUVEAU]
+//   STRIPE_WEBHOOK_SECRET   secret de signature du webhook (whsec_...)
 //   MONGODB_URI             URI MongoDB Atlas complète
 //   ADMIN_PASSWORD          mot de passe vendeur                          [OBLIGATOIRE]
 //   ALLOWED_ORIGINS         (optionnel) origines autorisées, séparées par
@@ -36,14 +38,20 @@
 //                           ATTENTION : si cette variable existe déjà sur Render,
 //                           elle remplace le défaut : mets-y la nouvelle adresse.
 //   MONGODB_DB_NAME         (optionnel) défaut : marketplace
+//   GMAIL_USER              adresse Gmail utilisée pour ENVOYER les messages   [NOUVEAU, obligatoire pour /contact]
+//   GMAIL_APP_PASSWORD      mot de passe d'application Gmail (16 lettres)      [NOUVEAU, obligatoire pour /contact]
+//   CONTACT_EMAIL           (optionnel) adresse qui REÇOIT les messages du
+//                           formulaire. Défaut : samft957@gmail.com
 //
-// Aucune nouvelle dépendance npm : express, cors, stripe, mongodb.
+// Nouvelle dépendance npm : nodemailer (en plus de express, cors, stripe, mongodb).
+// Installe-la avec : npm install nodemailer
 // ============================================================
 
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const { MongoClient } = require("mongodb");
+const nodemailer = require("nodemailer");
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -81,6 +89,11 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 // Durée d'une session vendeur : 30 jours
 const TOKEN_DURATION = 30 * 24 * 60 * 60 * 1000;
 
+// Formulaire de contact
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
+
 if (!ADMIN_PASSWORD) {
   console.error(
     "ATTENTION : ADMIN_PASSWORD n'est pas défini. Le mode vendeur est " +
@@ -94,6 +107,13 @@ if (!STRIPE_WEBHOOK_SECRET) {
   console.error(
     "ATTENTION : STRIPE_WEBHOOK_SECRET n'est pas défini. Les commandes ne " +
       "seront pas enregistrées tant que le webhook Stripe n'est pas configuré."
+  );
+}
+if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+  console.error(
+    "ATTENTION : GMAIL_USER / GMAIL_APP_PASSWORD ne sont pas définis. Le " +
+      "formulaire de contact ne pourra pas envoyer d'email tant que ces " +
+      "variables ne sont pas ajoutées sur Render."
   );
 }
 
@@ -158,6 +178,90 @@ app.post(
 );
 
 app.use(express.json({ limit: "10mb" }));
+
+// ============================================================
+// EMAIL (formulaire de contact) — Gmail via Nodemailer
+// ============================================================
+
+const mailTransporter =
+  GMAIL_USER && GMAIL_APP_PASSWORD
+    ? nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      })
+    : null;
+
+// Limitation anti-spam : 5 messages par IP toutes les 15 minutes.
+const CONTACT_MAX_MESSAGES = 5;
+const CONTACT_WINDOW = 15 * 60 * 1000;
+const contactAttempts = new Map();
+
+function isContactBlocked(ip) {
+  const entry = contactAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    contactAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= CONTACT_MAX_MESSAGES;
+}
+
+function registerContactAttempt(ip) {
+  const now = Date.now();
+  const entry = contactAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    contactAttempts.set(ip, { count: 1, resetAt: now + CONTACT_WINDOW });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function isValidEmail(email) {
+  return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+app.post("/contact", async (req, res) => {
+  try {
+    if (!mailTransporter) {
+      return res.status(500).json({
+        error:
+          "Envoi d'email non configuré sur le serveur. Ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
+      });
+    }
+
+    const ip = req.ip || "inconnue";
+    if (isContactBlocked(ip)) {
+      return res.status(429).json({
+        error: "Trop de messages envoyés. Réessayez dans quelques minutes.",
+      });
+    }
+
+    const { name, email, message } = req.body || {};
+
+    const cleanName = typeof name === "string" ? name.trim().slice(0, 200) : "";
+    const cleanEmail = typeof email === "string" ? email.trim().slice(0, 200) : "";
+    const cleanMessage = typeof message === "string" ? message.trim().slice(0, 5000) : "";
+
+    if (!cleanName || !cleanMessage || !isValidEmail(cleanEmail)) {
+      return res.status(400).json({ error: "Nom, email valide et message sont obligatoires." });
+    }
+
+    registerContactAttempt(ip);
+
+    await mailTransporter.sendMail({
+      from: `"Market place shop" <${GMAIL_USER}>`,
+      to: CONTACT_EMAIL,
+      replyTo: cleanEmail,
+      subject: `Message depuis Market place shop — ${cleanName}`,
+      text: `${cleanMessage}\n\n— ${cleanName} (${cleanEmail})`,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Erreur envoi email de contact :", err);
+    res.status(500).json({ error: "Impossible d'envoyer le message." });
+  }
+});
 
 // ============================================================
 // MONGODB — CONNEXION
@@ -588,6 +692,7 @@ app.get("/", (req, res) => {
     ok: true,
     message: "Backend market place shop : en ligne.",
     database: db ? "connectée" : "non connectée (MONGODB_URI manquant ?)",
+    email: mailTransporter ? "configuré" : "non configuré (GMAIL_USER / GMAIL_APP_PASSWORD manquants ?)",
   });
 });
 
@@ -932,13 +1037,16 @@ app.post("/shipping/create", requireDatabase, authenticateSeller, async (req, re
 });
 
 // ============================================================
-// NETTOYAGE PÉRIODIQUE (compteurs de tentatives de connexion)
+// NETTOYAGE PÉRIODIQUE (compteurs de tentatives)
 // ============================================================
 
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of loginFailures.entries()) {
     if (now > entry.resetAt) loginFailures.delete(ip);
+  }
+  for (const [ip, entry] of contactAttempts.entries()) {
+    if (now > entry.resetAt) contactAttempts.delete(ip);
   }
 }, 60 * 60 * 1000);
 
