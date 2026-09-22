@@ -1045,25 +1045,47 @@ function renderContact(){
       <button class="back-link" onclick="setView('shop')">← Retour à la boutique</button>
       <h2>Nous contacter</h2>
       <p>Une question sur un article, une commande ou une livraison ? Écrivez-nous, nous répondons sous 24 à 48h.</p>
-      <form class="form-card" style="max-width:480px;" onsubmit="submitContact(event)">
+      <form class="form-card" style="max-width:480px;" id="contact-form" onsubmit="submitContact(event)">
         <label class="field"><span>Votre nom</span><input class="input" id="c-name" required></label>
         <label class="field"><span>Votre email</span><input class="input" id="c-email" type="email" required></label>
         <label class="field"><span>Votre message</span><textarea class="input" id="c-message" required placeholder="Décrivez votre demande..."></textarea></label>
-        <button type="submit" class="btn btn-accent">Envoyer le message</button>
+        <div id="contact-feedback" style="font-size:13px;margin-bottom:10px;"></div>
+        <button type="submit" id="contact-submit-btn" class="btn btn-accent">Envoyer le message</button>
       </form>
       <p style="margin-top:18px;font-size:13px;opacity:.65;">Vous pouvez aussi nous joindre directement par téléphone au <a href="tel:+32466369367" style="text-decoration:underline;">+32 466 36 93 67</a>.</p>
     </div>
   `;
 }
 
-function submitContact(e){
+async function submitContact(e){
   e.preventDefault();
   const name = document.getElementById('c-name').value.trim();
   const email = document.getElementById('c-email').value.trim();
   const message = document.getElementById('c-message').value.trim();
-  const subject = encodeURIComponent("Message depuis Market place shop — " + name);
-  const body = encodeURIComponent(`${message}\n\n— ${name} (${email})`);
-  window.location.href = `mailto:contact@marketplaceshop.example?subject=${subject}&body=${body}`;
+  const btn = document.getElementById('contact-submit-btn');
+  const feedback = document.getElementById('contact-feedback');
+  btn.disabled = true;
+  btn.textContent = "Envoi en cours...";
+  feedback.textContent = "";
+  feedback.style.color = "";
+  try {
+    const res = await fetch(`${BACKEND_URL}/contact`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, message }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Erreur serveur");
+    document.getElementById('contact-form').reset();
+    feedback.style.color = "var(--sage)";
+    feedback.textContent = "Message envoyé ! Nous vous répondrons rapidement.";
+  } catch (err) {
+    feedback.style.color = "var(--brick)";
+    feedback.textContent = "Impossible d'envoyer le message pour le moment. Réessayez plus tard ou appelez-nous au +32 466 36 93 67.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Envoyer le message";
+  }
 }
 
 function render(){
