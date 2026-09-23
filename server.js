@@ -196,9 +196,9 @@ const mailTransporter =
     ? nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: GMAIL_USER,
-          pass: GMAIL_APP_PASSWORD.replace(/\s/g, ""),
-        },
+  user: GMAIL_USER,
+  pass: GMAIL_APP_PASSWORD.replace(/\s/g, ""),
+},
       })
     : null;
 
