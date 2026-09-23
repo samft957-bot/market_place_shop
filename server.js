@@ -93,7 +93,6 @@ const TOKEN_DURATION = 30 * 24 * 60 * 60 * 1000;
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
-
 if (!ADMIN_PASSWORD) {
   console.error(
     "ATTENTION : ADMIN_PASSWORD n'est pas défini. Le mode vendeur est " +
@@ -180,41 +179,39 @@ app.post(
 app.use(express.json({ limit: "10mb" }));
 
 // ============================================================
-// EMAIL (formulaire de contact) — Gmail via Nodemailer
+// EMAIL — FORMULAIRE DE CONTACT VIA GMAIL
 // ============================================================
 
-// ============================================================
-// EMAIL (formulaire de contact) — Gmail via Nodemailer
-// ============================================================
-
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
 
 const mailTransporter =
   GMAIL_USER && GMAIL_APP_PASSWORD
     ? nodemailer.createTransport({
         service: "gmail",
         auth: {
-  user: GMAIL_USER,
-  pass: GMAIL_APP_PASSWORD.replace(/\s/g, ""),
-},
+          user: GMAIL_USER,
+          pass: GMAIL_APP_PASSWORD.replace(/\s/g, ""),
+        },
       })
     : null;
 
-// Vérification automatique de la connexion Gmail au démarrage
 if (mailTransporter) {
   mailTransporter.verify((error) => {
     if (error) {
-      console.error("❌ ERREUR GMAIL :", error.message);
+      console.error("ERREUR GMAIL :", error.message);
     } else {
-      console.log("✅ GMAIL EST PRÊT !");
+      console.log("GMAIL EST PRET !");
     }
   });
 } else {
   console.error(
-    "❌ GMAIL NON CONFIGURÉ : GMAIL_USER ou GMAIL_APP_PASSWORD manque sur Render."
+    "GMAIL NON CONFIGURE : ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render."
   );
 }
 
-// Limitation anti-spam : 5 messages par IP toutes les 15 minutes.
+// Limite : 5 messages par IP toutes les 15 minutes.
 const CONTACT_MAX_MESSAGES = 5;
 const CONTACT_WINDOW = 15 * 60 * 1000;
 const contactAttempts = new Map();
@@ -222,7 +219,9 @@ const contactAttempts = new Map();
 function isContactBlocked(ip) {
   const entry = contactAttempts.get(ip);
 
-  if (!entry) return false;
+  if (!entry) {
+    return false;
+  }
 
   if (Date.now() > entry.resetAt) {
     contactAttempts.delete(ip);
@@ -249,6 +248,7 @@ function registerContactAttempt(ip) {
 function isValidEmail(email) {
   return (
     typeof email === "string" &&
+    email.length <= 200 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   );
 }
@@ -258,44 +258,38 @@ app.post("/contact", async (req, res) => {
     if (!mailTransporter) {
       return res.status(500).json({
         error:
-          "Email non configuré. Vérifie GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
+          "Email non configuré. Ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
       });
     }
 
-    const ip = req.ip || "inconnue";
+    const ip = req.ip || "unknown";
 
     if (isContactBlocked(ip)) {
       return res.status(429).json({
-        error:
-          "Trop de messages envoyés. Réessayez dans quelques minutes.",
+        error: "Trop de messages envoyés. Réessaie dans quelques minutes.",
       });
     }
 
-    const { name, email, message } = req.body || {};
+    const body = req.body || {};
 
-    const cleanName =
-      typeof name === "string"
-        ? name.trim().slice(0, 200)
+    const name =
+      typeof body.name === "string"
+        ? body.name.trim().slice(0, 200)
         : "";
 
-    const cleanEmail =
-      typeof email === "string"
-        ? email.trim().slice(0, 200)
+    const email =
+      typeof body.email === "string"
+        ? body.email.trim().slice(0, 200)
         : "";
 
-    const cleanMessage =
-      typeof message === "string"
-        ? message.trim().slice(0, 5000)
+    const message =
+      typeof body.message === "string"
+        ? body.message.trim().slice(0, 5000)
         : "";
 
-    if (
-      !cleanName ||
-      !cleanMessage ||
-      !isValidEmail(cleanEmail)
-    ) {
+    if (!name || !message || !isValidEmail(email)) {
       return res.status(400).json({
-        error:
-          "Nom, email valide et message sont obligatoires.",
+        error: "Nom, adresse email valide et message obligatoires.",
       });
     }
 
@@ -304,109 +298,30 @@ app.post("/contact", async (req, res) => {
     await mailTransporter.sendMail({
       from: `"Market place shop" <${GMAIL_USER}>`,
       to: CONTACT_EMAIL,
-      replyTo: cleanEmail,
-      subject: `Message depuis Market place shop — ${cleanName}`,
+      replyTo: email,
+      subject: `Message depuis Market place shop — ${name}`,
       text:
-        `Nouveau message depuis le formulaire de contact.\n\n` +
-        `Nom : ${cleanName}\n` +
-        `Email : ${cleanEmail}\n\n` +
-        `Message :\n${cleanMessage}`,
+        "Nouveau message depuis le formulaire de contact.\n\n" +
+        `Nom : ${name}\n` +
+        `Email : ${email}\n\n` +
+        `Message :\n${message}`,
     });
 
-    console.log(
-      `✅ Message de contact envoyé à ${CONTACT_EMAIL}`
-    );
+    console.log(`Message de contact envoyé à ${CONTACT_EMAIL}`);
 
-    return res.json({
+    return res.status(200).json({
       ok: true,
       message: "Message envoyé avec succès.",
     });
-
-  } catch (err) {
-    console.error(
-      "❌ ERREUR ENVOI EMAIL :",
-      err
-    );
+  } catch (error) {
+    console.error("Erreur envoi email de contact :", error);
 
     return res.status(500).json({
       error:
-        "Impossible d'envoyer le message. Vérifie la configuration Gmail sur Render.",
+        "Impossible d'envoyer le message. Vérifie la configuration Gmail.",
     });
   }
 });
-
-// Limitation anti-spam : 5 messages par IP toutes les 15 minutes.
-const CONTACT_MAX_MESSAGES = 5;
-const CONTACT_WINDOW = 15 * 60 * 1000;
-const contactAttempts = new Map();
-
-function isContactBlocked(ip) {
-  const entry = contactAttempts.get(ip);
-  if (!entry) return false;
-  if (Date.now() > entry.resetAt) {
-    contactAttempts.delete(ip);
-    return false;
-  }
-  return entry.count >= CONTACT_MAX_MESSAGES;
-}
-
-function registerContactAttempt(ip) {
-  const now = Date.now();
-  const entry = contactAttempts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    contactAttempts.set(ip, { count: 1, resetAt: now + CONTACT_WINDOW });
-  } else {
-    entry.count += 1;
-  }
-}
-
-function isValidEmail(email) {
-  return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-app.post("/contact", async (req, res) => {
-  try {
-    if (!mailTransporter) {
-      return res.status(500).json({
-        error:
-          "Envoi d'email non configuré sur le serveur. Ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
-      });
-    }
-
-    const ip = req.ip || "inconnue";
-    if (isContactBlocked(ip)) {
-      return res.status(429).json({
-        error: "Trop de messages envoyés. Réessayez dans quelques minutes.",
-      });
-    }
-
-    const { name, email, message } = req.body || {};
-
-    const cleanName = typeof name === "string" ? name.trim().slice(0, 200) : "";
-    const cleanEmail = typeof email === "string" ? email.trim().slice(0, 200) : "";
-    const cleanMessage = typeof message === "string" ? message.trim().slice(0, 5000) : "";
-
-    if (!cleanName || !cleanMessage || !isValidEmail(cleanEmail)) {
-      return res.status(400).json({ error: "Nom, email valide et message sont obligatoires." });
-    }
-
-    registerContactAttempt(ip);
-
-    await mailTransporter.sendMail({
-      from: `"Market place shop" <${GMAIL_USER}>`,
-      to: CONTACT_EMAIL,
-      replyTo: cleanEmail,
-      subject: `Message depuis Market place shop — ${cleanName}`,
-      text: `${cleanMessage}\n\n— ${cleanName} (${cleanEmail})`,
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Erreur envoi email de contact :", err);
-    res.status(500).json({ error: "Impossible d'envoyer le message." });
-  }
-});
-
 // ============================================================
 // MONGODB — CONNEXION
 // ============================================================
@@ -625,7 +540,8 @@ async function createOrderFromStripeSession(stripeSessionId) {
   const now = new Date().toISOString();
 
   const orderWithoutSession = {
-    id: generateOrderId(),
+  stripeSessionId,
+  id: generateOrderId(),
     items,
     customer: {
       email: (session.customer_details && session.customer_details.email) || null,
