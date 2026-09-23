@@ -182,9 +182,7 @@ app.use(express.json({ limit: "10mb" }));
 // EMAIL — FORMULAIRE DE CONTACT VIA GMAIL
 // ============================================================
 
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
-const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
+
 
 const mailTransporter =
   GMAIL_USER && GMAIL_APP_PASSWORD
