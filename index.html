@@ -506,12 +506,12 @@ const BACKEND_URL = "https://market-place-shop-prime.onrender.com";
 // ---------- State ----------
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-const CATEGORIES = ["Vêtements", "Électronique", "Maison & déco", "chaussure", "Autre"];
+const CATEGORIES = ["Vêtements", "Électroniques", "Maison & déco", "chaussures", "Autres"];
 
 let state = {
   products: [
     { id: uid(), name: "Veste en jean délavée", price: 28, category: "Vêtements", description: "Taille M, coupe vintage, petite usure au col.", photo: "https://images.unsplash.com/photo-1543076447-215ad9ba6923?w=700&q=80&auto=format&fit=crop" },
-    { id: uid(), name: "Appareil photo argentique", price: 65, category: "Photo & vidéo", description: "Fonctionnel, testé, sans étui.", photo: "https://images.unsplash.com/photo-1495707902641-75cac588d2e9?w=700&q=80&auto=format&fit=crop" },
+    { id: uid(), name: "Appareil photo argentique", price: 65, category: "Électroniques", description: "Fonctionnel, testé, sans étui.", photo: "https://images.unsplash.com/photo-1495707902641-75cac588d2e9?w=700&q=80&auto=format&fit=crop" },
   ],
   cart: [],
   cartOpen: false,
