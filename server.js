@@ -1,51 +1,4 @@
-// ============================================================
-// Backend "market place shop"
-// Stripe + produits + commandes + suivi bpost / Mondial Relay
-// + authentification vendeur + stockage permanent MongoDB Atlas
-// + formulaire de contact (email)
-// ============================================================
-//
-// CE QUI A CHANGÉ DANS CETTE VERSION
-// ------------------------------------------------------------
-// 1. SÉCURITÉ DU MOT DE PASSE : plus aucune valeur par défaut dans le code.
-//    ADMIN_PASSWORD doit être défini sur Render (Environment Variables).
-//    Comparaison à temps constant + limitation des tentatives (anti brute-force).
-// 2. PRIX VÉRIFIÉS CÔTÉ SERVEUR : le navigateur n'envoie plus que
-//    { id, qty }. Le nom et le prix sont relus dans MongoDB, donc
-//    impossible de payer un article 1 € en modifiant la requête.
-// 3. SESSIONS VENDEUR DANS MONGODB, 30 JOURS : elles survivent aux
-//    mises en veille et aux redéploiements de Render. Seul un hash du
-//    jeton est stocké en base.
-// 4. COMMANDES ENREGISTRÉES PAR WEBHOOK STRIPE : POST /stripe-webhook
-//    crée la commande dès que le paiement est confirmé. L'ancienne
-//    route publique POST /orders (qui permettait de créer de fausses
-//    commandes) est supprimée.
-// 5. CORS RESTREINT à ton site (Cloudflare Pages + ancien GitHub Pages),
-//    modifiable via ALLOWED_ORIGINS.
-// 6. VALIDATION des produits enregistrés par le vendeur.
-// 7. Reconnexion automatique à MongoDB si la première tentative échoue.
-// 8. FORMULAIRE DE CONTACT : POST /contact envoie un vrai email via Gmail. [NOUVEAU]
-//
-// VARIABLES D'ENVIRONNEMENT À AVOIR SUR RENDER
-// ------------------------------------------------------------
-//   STRIPE_SECRET_KEY       clé secrète Stripe (sk_live_... ou sk_test_...)
-//   STRIPE_WEBHOOK_SECRET   secret de signature du webhook (whsec_...)
-//   MONGODB_URI             URI MongoDB Atlas complète
-//   ADMIN_PASSWORD          mot de passe vendeur                          [OBLIGATOIRE]
-//   ALLOWED_ORIGINS         (optionnel) origines autorisées, séparées par
-//                           des virgules. Défaut : https://market-place-shop.pages.dev
-//                           et https://samft957-bot.github.io
-//                           ATTENTION : si cette variable existe déjà sur Render,
-//                           elle remplace le défaut : mets-y la nouvelle adresse.
-//   MONGODB_DB_NAME         (optionnel) défaut : marketplace
-//   GMAIL_USER              adresse Gmail utilisée pour ENVOYER les messages   [NOUVEAU, obligatoire pour /contact]
-//   GMAIL_APP_PASSWORD      mot de passe d'application Gmail (16 lettres)      [NOUVEAU, obligatoire pour /contact]
-//   CONTACT_EMAIL           (optionnel) adresse qui REÇOIT les messages du
-//                           formulaire. Défaut : samft957@gmail.com
-//
-// Nouvelle dépendance npm : nodemailer (en plus de express, cors, stripe, mongodb).
-// Installe-la avec : npm install nodemailer
-// ============================================================
+require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
@@ -56,25 +9,14 @@ const nodemailer = require("nodemailer");
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
-// On ne plante pas au démarrage si la clé Stripe manque : les routes
-// concernées répondront simplement par une erreur claire.
 const stripe = STRIPE_SECRET_KEY ? require("stripe")(STRIPE_SECRET_KEY) : null;
 
 const app = express();
 app.disable("x-powered-by");
-
-// Render place un proxy devant le serveur : nécessaire pour lire la vraie IP
-// du visiteur (limitation des tentatives de connexion).
 app.set("trust proxy", 1);
-
-// ============================================================
-// CONFIGURATION
-// ============================================================
 
 const PORT = process.env.PORT || 3000;
 
-// Adresses autorisées à appeler ce serveur (et à servir d'adresse de retour
-// après un paiement Stripe). Sans slash final et sans chemin.
 const ALLOWED_ORIGINS = (
   process.env.ALLOWED_ORIGINS ||
   "https://market-place-shop.pages.dev,https://samft957-bot.github.io"
@@ -83,43 +25,37 @@ const ALLOWED_ORIGINS = (
   .map((s) => s.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
-// Mot de passe vendeur : UNIQUEMENT via variable d'environnement.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
-// Durée d'une session vendeur : 30 jours
 const TOKEN_DURATION = 30 * 24 * 60 * 60 * 1000;
 
-// Formulaire de contact
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
+
 if (!ADMIN_PASSWORD) {
   console.error(
-    "ATTENTION : ADMIN_PASSWORD n'est pas défini. Le mode vendeur est " +
-      "désactivé tant que cette variable n'est pas ajoutée sur Render."
+    "ATTENTION : ADMIN_PASSWORD n'est pas défini. Le mode vendeur est désactivé tant que cette variable n'est pas ajoutée sur Render."
   );
 }
 if (!STRIPE_SECRET_KEY) {
-  console.error("ATTENTION : STRIPE_SECRET_KEY n'est pas défini. Les paiements sont désactivés.");
+  console.error(
+    "ATTENTION : STRIPE_SECRET_KEY n'est pas défini. Les paiements sont désactivés."
+  );
 }
 if (!STRIPE_WEBHOOK_SECRET) {
   console.error(
-    "ATTENTION : STRIPE_WEBHOOK_SECRET n'est pas défini. Les commandes ne " +
-      "seront pas enregistrées tant que le webhook Stripe n'est pas configuré."
+    "ATTENTION : STRIPE_WEBHOOK_SECRET n'est pas défini. Les commandes ne seront pas enregistrées tant que le webhook Stripe n'est pas configuré."
   );
 }
 if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
   console.error(
-    "ATTENTION : GMAIL_USER / GMAIL_APP_PASSWORD ne sont pas définis. Le " +
-      "formulaire de contact ne pourra pas envoyer d'email tant que ces " +
-      "variables ne sont pas ajoutées sur Render."
+    "ATTENTION : GMAIL_USER / GMAIL_APP_PASSWORD ne sont pas définis. Le formulaire de contact ne pourra pas envoyer d'email tant que ces variables ne sont pas ajoutées sur Render."
   );
 }
 
 app.use(
   cors({
     origin(origin, callback) {
-      // Pas d'en-tête Origin = appel serveur à serveur (Stripe, curl...) : autorisé.
       if (!origin || ALLOWED_ORIGINS.includes(origin)) {
         return callback(null, true);
       }
@@ -131,8 +67,8 @@ app.use(
 // ============================================================
 // WEBHOOK STRIPE
 // ============================================================
-// IMPORTANT : cette route doit être déclarée AVANT express.json(),
-// car Stripe vérifie la signature sur le corps BRUT de la requête.
+// IMPORTANT : déclarée AVANT express.json() pour vérifier la
+// signature sur le corps brut.
 
 app.post(
   "/stripe-webhook",
@@ -161,9 +97,9 @@ app.post(
 
     if (handled.includes(event.type)) {
       if (!db) {
-        // 503 : Stripe réessaiera automatiquement plus tard.
         return res.status(503).send("Base de données indisponible.");
       }
+
       try {
         await createOrderFromStripeSession(event.data.object.id);
       } catch (err) {
@@ -179,10 +115,8 @@ app.post(
 app.use(express.json({ limit: "10mb" }));
 
 // ============================================================
-// EMAIL — FORMULAIRE DE CONTACT VIA GMAIL
+// EMAIL — GMAIL
 // ============================================================
-
-
 
 const mailTransporter =
   GMAIL_USER && GMAIL_APP_PASSWORD
@@ -200,16 +134,15 @@ if (mailTransporter) {
     if (error) {
       console.error("ERREUR GMAIL :", error.message);
     } else {
-      console.log("GMAIL EST PRET !");
+      console.log("GMAIL EST PRÊT !");
     }
   });
 } else {
   console.error(
-    "GMAIL NON CONFIGURE : ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render."
+    "GMAIL NON CONFIGURÉ : GMAIL_USER ou GMAIL_APP_PASSWORD manque sur Render."
   );
 }
 
-// Limite : 5 messages par IP toutes les 15 minutes.
 const CONTACT_MAX_MESSAGES = 5;
 const CONTACT_WINDOW = 15 * 60 * 1000;
 const contactAttempts = new Map();
@@ -217,9 +150,7 @@ const contactAttempts = new Map();
 function isContactBlocked(ip) {
   const entry = contactAttempts.get(ip);
 
-  if (!entry) {
-    return false;
-  }
+  if (!entry) return false;
 
   if (Date.now() > entry.resetAt) {
     contactAttempts.delete(ip);
@@ -246,7 +177,6 @@ function registerContactAttempt(ip) {
 function isValidEmail(email) {
   return (
     typeof email === "string" &&
-    email.length <= 200 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   );
 }
@@ -256,38 +186,32 @@ app.post("/contact", async (req, res) => {
     if (!mailTransporter) {
       return res.status(500).json({
         error:
-          "Email non configuré. Ajoute GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
+          "Email non configuré. Vérifie GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
       });
     }
 
-    const ip = req.ip || "unknown";
+    const ip = req.ip || "inconnue";
 
     if (isContactBlocked(ip)) {
       return res.status(429).json({
-        error: "Trop de messages envoyés. Réessaie dans quelques minutes.",
+        error: "Trop de messages envoyés. Réessayez dans quelques minutes.",
       });
     }
 
-    const body = req.body || {};
+    const { name, email, message } = req.body || {};
 
-    const name =
-      typeof body.name === "string"
-        ? body.name.trim().slice(0, 200)
-        : "";
+    const cleanName =
+      typeof name === "string" ? name.trim().slice(0, 200) : "";
 
-    const email =
-      typeof body.email === "string"
-        ? body.email.trim().slice(0, 200)
-        : "";
+    const cleanEmail =
+      typeof email === "string" ? email.trim().slice(0, 200) : "";
 
-    const message =
-      typeof body.message === "string"
-        ? body.message.trim().slice(0, 5000)
-        : "";
+    const cleanMessage =
+      typeof message === "string" ? message.trim().slice(0, 5000) : "";
 
-    if (!name || !message || !isValidEmail(email)) {
+    if (!cleanName || !cleanMessage || !isValidEmail(cleanEmail)) {
       return res.status(400).json({
-        error: "Nom, adresse email valide et message obligatoires.",
+        error: "Nom, email valide et message sont obligatoires.",
       });
     }
 
@@ -296,32 +220,33 @@ app.post("/contact", async (req, res) => {
     await mailTransporter.sendMail({
       from: `"Market place shop" <${GMAIL_USER}>`,
       to: CONTACT_EMAIL,
-      replyTo: email,
-      subject: `Message depuis Market place shop — ${name}`,
+      replyTo: cleanEmail,
+      subject: `Message depuis Market place shop — ${cleanName}`,
       text:
         "Nouveau message depuis le formulaire de contact.\n\n" +
-        `Nom : ${name}\n` +
-        `Email : ${email}\n\n` +
-        `Message :\n${message}`,
+        `Nom : ${cleanName}\n` +
+        `Email : ${cleanEmail}\n\n` +
+        `Message :\n${cleanMessage}`,
     });
 
-    console.log(`Message de contact envoyé à ${CONTACT_EMAIL}`);
+    console.log(`✅ Message de contact envoyé à ${CONTACT_EMAIL}`);
 
-    return res.status(200).json({
+    return res.json({
       ok: true,
       message: "Message envoyé avec succès.",
     });
-  } catch (error) {
-    console.error("Erreur envoi email de contact :", error);
+  } catch (err) {
+    console.error("❌ ERREUR ENVOI EMAIL :", err);
 
     return res.status(500).json({
       error:
-        "Impossible d'envoyer le message. Vérifie la configuration Gmail.",
+        "Impossible d'envoyer le message. Vérifie la configuration Gmail sur Render.",
     });
   }
 });
+
 // ============================================================
-// MONGODB — CONNEXION
+// MONGODB
 // ============================================================
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -361,11 +286,11 @@ async function connectToDatabase() {
     });
     await mongoClient.connect();
     db = mongoClient.db(DB_NAME);
+
     console.log("Connecté à MongoDB Atlas (base : " + DB_NAME + ")");
 
     await ensureIndex("orders", { id: 1 }, { unique: true });
     await ensureIndex("orders", { stripeSessionId: 1 });
-    // Les sessions expirées sont supprimées automatiquement par MongoDB.
     await ensureIndex("sessions", { expiresAt: 1 }, { expireAfterSeconds: 0 });
   } catch (err) {
     db = null;
@@ -375,21 +300,20 @@ async function connectToDatabase() {
         "2) mot de passe sans caractères non encodés, " +
         "3) 0.0.0.0/0 ajouté dans Network Access sur MongoDB Atlas."
     );
+
     try {
       if (mongoClient) await mongoClient.close();
     } catch (e) {
-      /* ignoré */
+      // ignoré
     }
+
     mongoClient = null;
-    // Nouvelle tentative dans 15 secondes.
     setTimeout(connectToDatabase, 15000);
   } finally {
     connecting = false;
   }
 }
 
-// Bloque proprement les routes qui ont besoin de la base si elle n'est
-// pas connectée, plutôt que de planter le serveur.
 function requireDatabase(req, res, next) {
   if (!db) {
     return res.status(503).json({
@@ -402,10 +326,8 @@ function requireDatabase(req, res, next) {
 }
 
 // ============================================================
-// PRODUITS — STOCKAGE MONGODB
+// PRODUITS
 // ============================================================
-// Le frontend envoie la LISTE COMPLÈTE des produits à chaque sauvegarde.
-// Elle est stockée dans un unique document.
 
 const PRODUCTS_DOC_ID = "products";
 
@@ -422,8 +344,6 @@ async function saveProductsToDB(products) {
   );
 }
 
-// Nettoie et valide la liste envoyée par le vendeur.
-// Renvoie { products } si tout est valide, sinon { error }.
 function sanitizeProducts(list) {
   if (!Array.isArray(list)) return { error: "Format invalide." };
   if (list.length > 500) return { error: "Trop d'articles (maximum 500)." };
@@ -441,7 +361,8 @@ function sanitizeProducts(list) {
     if (!id || id.length > 64) return { error: "Identifiant d'article invalide." };
     if (seen.has(id)) return { error: "Identifiant d'article en double." };
     if (!name || name.length > 200) return { error: "Nom d'article invalide." };
-    if (!(price > 0) || price > 100000) return { error: "Prix invalide pour « " + name + " »." };
+    if (!(price > 0) || price > 100000)
+      return { error: "Prix invalide pour « " + name + " »." };
 
     seen.add(id);
 
@@ -463,7 +384,8 @@ function sanitizeProducts(list) {
       name,
       price,
       category: typeof p.category === "string" ? p.category.slice(0, 60) : "Autre",
-      description: typeof p.description === "string" ? p.description.slice(0, 2000) : "",
+      description:
+        typeof p.description === "string" ? p.description.slice(0, 2000) : "",
       photo,
       paymentLink,
     });
@@ -473,7 +395,7 @@ function sanitizeProducts(list) {
 }
 
 // ============================================================
-// COMMANDES — STOCKAGE MONGODB
+// COMMANDES
 // ============================================================
 
 async function getOrders() {
@@ -507,9 +429,8 @@ function generateOrderId() {
   );
 }
 
-// Crée la commande à partir d'une session Stripe payée.
-// Idempotent : si Stripe renvoie le même événement plusieurs fois,
-// la commande n'est créée qu'une seule fois.
+// Idempotent : si Stripe renvoie le même événement plusieurs fois, on ne crée
+// qu’une seule commande.
 async function createOrderFromStripeSession(stripeSessionId) {
   const session = await stripe.checkout.sessions.retrieve(stripeSessionId, {
     expand: ["line_items"],
@@ -519,7 +440,6 @@ async function createOrderFromStripeSession(stripeSessionId) {
     return null;
   }
 
-  // Selon la version de l'API Stripe, l'adresse est à l'un de ces deux endroits.
   const shipping =
     (session.collected_information && session.collected_information.shipping_details) ||
     session.shipping_details ||
@@ -532,14 +452,15 @@ async function createOrderFromStripeSession(stripeSessionId) {
       li.price && typeof li.price.unit_amount === "number"
         ? li.price.unit_amount / 100
         : null,
-    total: typeof li.amount_total === "number" ? li.amount_total / 100 : null,
+    total:
+      typeof li.amount_total === "number" ? li.amount_total / 100 : null,
   }));
 
   const now = new Date().toISOString();
 
   const orderWithoutSession = {
-  stripeSessionId,
-  id: generateOrderId(),
+    stripeSessionId,
+    id: generateOrderId(),
     items,
     customer: {
       email: (session.customer_details && session.customer_details.email) || null,
@@ -549,7 +470,8 @@ async function createOrderFromStripeSession(stripeSessionId) {
         : null,
     },
     paymentStatus: "paid",
-    amountTotal: typeof session.amount_total === "number" ? session.amount_total / 100 : null,
+    amountTotal:
+      typeof session.amount_total === "number" ? session.amount_total / 100 : null,
     currency: session.currency || "eur",
     shipping: {
       carrier: null,
@@ -582,14 +504,13 @@ async function getOrderByStripeSessionId(stripeSessionId) {
 }
 
 // ============================================================
-// AUTHENTIFICATION VENDEUR (sessions stockées dans MongoDB)
+// AUTHENTIFICATION VENDEUR
 // ============================================================
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-// Comparaison à temps constant (évite les attaques par mesure du temps de réponse).
 function safeEqual(a, b) {
   const ha = crypto.createHash("sha256").update(String(a)).digest();
   const hb = crypto.createHash("sha256").update(String(b)).digest();
@@ -627,7 +548,9 @@ async function authenticateSeller(req, res, next) {
   }
 
   try {
-    const session = await db.collection("sessions").findOne({ _id: hashToken(token) });
+    const session = await db.collection("sessions").findOne({
+      _id: hashToken(token),
+    });
 
     if (!session) {
       return res.status(401).json({ error: "Session vendeur invalide." });
@@ -646,7 +569,6 @@ async function authenticateSeller(req, res, next) {
   }
 }
 
-// Limitation des tentatives de connexion : 8 échecs par IP toutes les 15 minutes.
 const LOGIN_MAX_FAILURES = 8;
 const LOGIN_WINDOW = 15 * 60 * 1000;
 const loginFailures = new Map();
@@ -664,6 +586,7 @@ function isLoginBlocked(ip) {
 function registerLoginFailure(ip) {
   const now = Date.now();
   const entry = loginFailures.get(ip);
+
   if (!entry || now > entry.resetAt) {
     loginFailures.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW });
   } else {
@@ -703,10 +626,10 @@ app.post("/admin/login", requireDatabase, async (req, res) => {
 
     const { token, expiresAt } = await createSellerSession();
 
-    res.json({ ok: true, token, expiresAt });
+    return res.json({ ok: true, token, expiresAt });
   } catch (err) {
     console.error("Erreur connexion vendeur :", err);
-    res.status(500).json({ error: "Impossible de vérifier le mot de passe." });
+    return res.status(500).json({ error: "Impossible de vérifier le mot de passe." });
   }
 });
 
@@ -714,15 +637,15 @@ app.post("/admin/logout", requireDatabase, authenticateSeller, async (req, res) 
   try {
     const token = (req.headers.authorization || "").slice(7).trim();
     await db.collection("sessions").deleteOne({ _id: hashToken(token) });
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (err) {
     console.error("Erreur déconnexion vendeur :", err);
-    res.status(500).json({ error: "Impossible de fermer la session." });
+    return res.status(500).json({ error: "Impossible de fermer la session." });
   }
 });
 
 // ============================================================
-// LIENS DE SUIVI
+// TRACKING
 // ============================================================
 
 function getTrackingUrl(carrier, trackingNumber) {
@@ -755,11 +678,8 @@ app.get("/", (req, res) => {
 });
 
 // ============================================================
-// STRIPE - CRÉER UNE SESSION DE PAIEMENT
+// STRIPE – CRÉER UNE SESSION DE PAIEMENT
 // ============================================================
-// Le navigateur envoie { cart: [{ id, qty }], successUrl, cancelUrl }.
-// Les noms et prix sont relus dans la base : ils ne peuvent pas être
-// falsifiés par le client.
 
 function isAllowedRedirect(url) {
   try {
@@ -772,7 +692,9 @@ function isAllowedRedirect(url) {
 app.post("/create-checkout-session", requireDatabase, async (req, res) => {
   try {
     if (!stripe) {
-      return res.status(500).json({ error: "Paiement non configuré sur le serveur." });
+      return res.status(500).json({
+        error: "Paiement non configuré sur le serveur.",
+      });
     }
 
     const { cart, successUrl, cancelUrl } = req.body || {};
@@ -803,7 +725,6 @@ app.post("/create-checkout-session", requireDatabase, async (req, res) => {
       const qty = Math.min(Math.max(parseInt(item.qty, 10) || 1, 1), 20);
       const unit_amount = Math.round(Number(product.price) * 100);
 
-      // Stripe refuse les montants inférieurs à 0,50 €.
       if (!Number.isInteger(unit_amount) || unit_amount < 50) {
         return res.status(400).json({
           error: "Le prix de « " + product.name + " » est invalide.",
@@ -832,15 +753,15 @@ app.post("/create-checkout-session", requireDatabase, async (req, res) => {
       metadata: { marketplace: "market-place-shop" },
     });
 
-    res.json({ url: session.url, sessionId: session.id });
+    return res.json({ url: session.url, sessionId: session.id });
   } catch (err) {
     console.error("Erreur création session Stripe :", err);
-    res.status(500).json({ error: "Impossible de créer le paiement." });
+    return res.status(500).json({ error: "Impossible de créer le paiement." });
   }
 });
 
 // ============================================================
-// STRIPE - RÉCUPÉRER UNE SESSION (protégé : contient des données clients)
+// STRIPE – RÉCUPÉRER UNE SESSION
 // ============================================================
 
 app.get(
@@ -859,37 +780,37 @@ app.get(
         session.shipping_details ||
         null;
 
-      res.json({
+      return res.json({
         id: session.id,
         payment_status: session.payment_status,
         status: session.status,
-        customer_email: (session.customer_details && session.customer_details.email) || null,
-        customer_name: (session.customer_details && session.customer_details.name) || null,
+        customer_email:
+          (session.customer_details && session.customer_details.email) || null,
+        customer_name:
+          (session.customer_details && session.customer_details.name) || null,
         shipping_address: (shipping && shipping.address) || null,
       });
     } catch (err) {
       console.error("Erreur récupération session Stripe :", err);
-      res.status(500).json({ error: "Impossible de récupérer la commande Stripe." });
+      return res.status(500).json({ error: "Impossible de récupérer la commande Stripe." });
     }
   }
 );
 
 // ============================================================
-// PRODUITS
+// PRODUITS PUBLIC / PRIVÉ
 // ============================================================
 
-// Public : tout le monde peut voir les produits
 app.get("/products", requireDatabase, async (req, res) => {
   try {
     const products = await getProductsFromDB();
-    res.json({ products });
+    return res.json({ products });
   } catch (err) {
     console.error("Erreur lecture des produits (MongoDB) :", err);
-    res.status(500).json({ error: "Impossible de lire les produits." });
+    return res.status(500).json({ error: "Impossible de lire les produits." });
   }
 });
 
-// PROTÉGÉ : seul le vendeur connecté peut modifier
 app.post("/products", requireDatabase, authenticateSeller, async (req, res) => {
   try {
     const result = sanitizeProducts((req.body || {}).products);
@@ -900,26 +821,24 @@ app.post("/products", requireDatabase, authenticateSeller, async (req, res) => {
 
     await saveProductsToDB(result.products);
 
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (err) {
     console.error("Erreur écriture des produits (MongoDB) :", err);
-    res.status(500).json({ error: "Impossible de sauvegarder les produits." });
+    return res.status(500).json({ error: "Impossible de sauvegarder les produits." });
   }
 });
 
 // ============================================================
-// COMMANDES (lecture réservée au vendeur)
+// COMMANDES / SUIVI
 // ============================================================
-// Les commandes sont créées uniquement par le webhook Stripe
-// (POST /stripe-webhook), jamais directement par le navigateur.
 
 app.get("/orders", requireDatabase, authenticateSeller, async (req, res) => {
   try {
     const orders = await getOrders();
-    res.json({ orders });
+    return res.json({ orders });
   } catch (err) {
     console.error("Erreur lecture commandes :", err);
-    res.status(500).json({ error: "Impossible de lire les commandes." });
+    return res.status(500).json({ error: "Impossible de lire les commandes." });
   }
 });
 
@@ -931,17 +850,12 @@ app.get("/orders/:orderId", requireDatabase, authenticateSeller, async (req, res
       return res.status(404).json({ error: "Commande introuvable." });
     }
 
-    res.json({ order });
+    return res.json({ order });
   } catch (err) {
     console.error("Erreur récupération commande :", err);
-    res.status(500).json({ error: "Impossible de récupérer la commande." });
+    return res.status(500).json({ error: "Impossible de récupérer la commande." });
   }
 });
-
-// ============================================================
-// AJOUTER UN NUMÉRO DE SUIVI
-// ============================================================
-// Le numéro doit être le vrai numéro fourni par bpost ou Mondial Relay.
 
 app.post(
   "/orders/:orderId/tracking",
@@ -981,17 +895,13 @@ app.post(
         updatedAt: new Date().toISOString(),
       });
 
-      res.json({ ok: true, order: updated });
+      return res.json({ ok: true, order: updated });
     } catch (err) {
       console.error("Erreur ajout suivi :", err);
-      res.status(500).json({ error: "Impossible d'enregistrer le suivi." });
+      return res.status(500).json({ error: "Impossible d'enregistrer le suivi." });
     }
   }
 );
-
-// ============================================================
-// MODIFIER LE STATUT D'EXPÉDITION
-// ============================================================
 
 app.patch(
   "/orders/:orderId/shipping-status",
@@ -1025,17 +935,13 @@ app.patch(
         updatedAt: new Date().toISOString(),
       });
 
-      res.json({ ok: true, order: updated });
+      return res.json({ ok: true, order: updated });
     } catch (err) {
       console.error("Erreur modification statut :", err);
-      res.status(500).json({ error: "Impossible de modifier le statut." });
+      return res.status(500).json({ error: "Impossible de modifier le statut." });
     }
   }
 );
-
-// ============================================================
-// SUIVI CLIENT (public : le client connaît son numéro de commande)
-// ============================================================
 
 app.get("/tracking/:orderId", requireDatabase, async (req, res) => {
   try {
@@ -1045,7 +951,7 @@ app.get("/tracking/:orderId", requireDatabase, async (req, res) => {
       return res.status(404).json({ error: "Commande introuvable." });
     }
 
-    res.json({
+    return res.json({
       orderId: order.id,
       shipping: order.shipping || {
         carrier: null,
@@ -1056,13 +962,9 @@ app.get("/tracking/:orderId", requireDatabase, async (req, res) => {
     });
   } catch (err) {
     console.error("Erreur récupération suivi :", err);
-    res.status(500).json({ error: "Impossible de récupérer le suivi." });
+    return res.status(500).json({ error: "Impossible de récupérer le suivi." });
   }
 });
-
-// ============================================================
-// CRÉATION D'EXPÉDITION (préparée, pas encore connectée aux API transporteurs)
-// ============================================================
 
 app.post("/shipping/create", requireDatabase, authenticateSeller, async (req, res) => {
   try {
@@ -1090,29 +992,29 @@ app.post("/shipping/create", requireDatabase, authenticateSeller, async (req, re
     });
   } catch (err) {
     console.error("Erreur création expédition :", err);
-    res.status(500).json({ error: "Impossible de créer l'expédition." });
+    return res.status(500).json({ error: "Impossible de créer l'expédition." });
   }
 });
 
 // ============================================================
-// NETTOYAGE PÉRIODIQUE (compteurs de tentatives)
+// NETTOYAGE PÉRIODIQUE
 // ============================================================
 
 setInterval(() => {
   const now = Date.now();
+
   for (const [ip, entry] of loginFailures.entries()) {
     if (now > entry.resetAt) loginFailures.delete(ip);
   }
+
   for (const [ip, entry] of contactAttempts.entries()) {
     if (now > entry.resetAt) contactAttempts.delete(ip);
   }
 }, 60 * 60 * 1000);
 
 // ============================================================
-// DÉMARRAGE DU SERVEUR
+// DÉMARRAGE
 // ============================================================
-// On ouvre le port immédiatement, sans attendre MongoDB, pour que Render
-// détecte un port ouvert. La connexion à la base se fait en parallèle.
 
 app.listen(PORT, () => {
   console.log(`Serveur démarré sur le port ${PORT}`);
