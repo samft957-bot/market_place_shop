@@ -909,7 +909,7 @@ function productCardHtml(p, sellerView){
   const inCart = state.cart.some(x => x.id === p.id);
   let buyBtn;
   if (sellerView){ buyBtn = ""; }
-  else { buyBtn = `<button class="btn btn-cart-add" onclick="${buyAction}">${inCart ? "Ajouter encore" : "Ajouter au panier"}</button>`; }
+  else { buyBtn = `<button class="btn btn-accent" onclick="${buyAction}">${inCart ? "Ajouter encore" : "Ajouter au panier"}</button>`; }
   const actions = sellerView
     ? `<div style="display:flex;gap:6px;">
          <button class="btn btn-sm" onclick="startEdit('${p.id}')">Modifier</button>
