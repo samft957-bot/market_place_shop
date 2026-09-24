@@ -4,7 +4,6 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const { MongoClient } = require("mongodb");
-const nodemailer = require("nodemailer");
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -28,9 +27,24 @@ const ALLOWED_ORIGINS = (
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const TOKEN_DURATION = 30 * 24 * 60 * 60 * 1000;
 
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+// ============================================================
+// EMAIL — BREVO (API HTTP, pas de port SMTP)
+// ============================================================
+// Render bloque les ports SMTP sortants (25/465/587) sur le plan
+// gratuit depuis septembre 2025. Brevo envoie les emails via une
+// simple requête HTTPS, donc ça fonctionne même sur le plan gratuit.
+//
+// Variables Render nécessaires :
+//  - BREVO_API_KEY       : clé API générée dans Brevo (SMTP & API > Clés API)
+//  - BREVO_SENDER_EMAIL  : adresse expéditrice VÉRIFIÉE dans Brevo
+//                          (Paramètres > Expéditeurs, domaines et dédiabolisation)
+//  - CONTACT_EMAIL       : adresse qui reçoit les messages (optionnel,
+//                          par défaut samft957@gmail.com)
+
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "samft957@gmail.com";
+const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || CONTACT_EMAIL;
+const BREVO_SENDER_NAME = process.env.BREVO_SENDER_NAME || "Market place shop";
 
 if (!ADMIN_PASSWORD) {
   console.error(
@@ -47,9 +61,9 @@ if (!STRIPE_WEBHOOK_SECRET) {
     "ATTENTION : STRIPE_WEBHOOK_SECRET n'est pas défini. Les commandes ne seront pas enregistrées tant que le webhook Stripe n'est pas configuré."
   );
 }
-if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+if (!BREVO_API_KEY) {
   console.error(
-    "ATTENTION : GMAIL_USER / GMAIL_APP_PASSWORD ne sont pas définis. Le formulaire de contact ne pourra pas envoyer d'email tant que ces variables ne sont pas ajoutées sur Render."
+    "ATTENTION : BREVO_API_KEY n'est pas défini. Le formulaire de contact ne pourra pas envoyer d'email tant que cette variable n'est pas ajoutée sur Render."
   );
 }
 
@@ -115,32 +129,38 @@ app.post(
 app.use(express.json({ limit: "10mb" }));
 
 // ============================================================
-// EMAIL — GMAIL
+// ENVOI D'EMAIL VIA BREVO
 // ============================================================
 
-const mailTransporter =
-  GMAIL_USER && GMAIL_APP_PASSWORD
-    ? nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: GMAIL_USER,
-          pass: GMAIL_APP_PASSWORD.replace(/\s/g, ""),
-        },
-      })
-    : null;
-
-if (mailTransporter) {
-  mailTransporter.verify((error) => {
-    if (error) {
-      console.error("ERREUR GMAIL :", error.message);
-    } else {
-      console.log("GMAIL EST PRÊT !");
-    }
+async function sendContactEmail({ name, email, message }) {
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "api-key": BREVO_API_KEY,
+    },
+    body: JSON.stringify({
+      sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+      to: [{ email: CONTACT_EMAIL }],
+      replyTo: { email, name },
+      subject: `Message depuis Market place shop — ${name}`,
+      textContent:
+        "Nouveau message depuis le formulaire de contact.\n\n" +
+        `Nom : ${name}\n` +
+        `Email : ${email}\n\n` +
+        `Message :\n${message}`,
+    }),
   });
-} else {
-  console.error(
-    "GMAIL NON CONFIGURÉ : GMAIL_USER ou GMAIL_APP_PASSWORD manque sur Render."
-  );
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(
+      `Brevo API a répondu ${response.status} : ${errText || "(pas de détail)"}`
+    );
+  }
+
+  return response.json();
 }
 
 const CONTACT_MAX_MESSAGES = 5;
@@ -183,10 +203,10 @@ function isValidEmail(email) {
 
 app.post("/contact", async (req, res) => {
   try {
-    if (!mailTransporter) {
+    if (!BREVO_API_KEY) {
       return res.status(500).json({
         error:
-          "Email non configuré. Vérifie GMAIL_USER et GMAIL_APP_PASSWORD sur Render.",
+          "Email non configuré. Vérifie BREVO_API_KEY (et BREVO_SENDER_EMAIL) sur Render.",
       });
     }
 
@@ -217,16 +237,10 @@ app.post("/contact", async (req, res) => {
 
     registerContactAttempt(ip);
 
-    await mailTransporter.sendMail({
-      from: `"Market place shop" <${GMAIL_USER}>`,
-      to: CONTACT_EMAIL,
-      replyTo: cleanEmail,
-      subject: `Message depuis Market place shop — ${cleanName}`,
-      text:
-        "Nouveau message depuis le formulaire de contact.\n\n" +
-        `Nom : ${cleanName}\n` +
-        `Email : ${cleanEmail}\n\n` +
-        `Message :\n${cleanMessage}`,
+    await sendContactEmail({
+      name: cleanName,
+      email: cleanEmail,
+      message: cleanMessage,
     });
 
     console.log(`✅ Message de contact envoyé à ${CONTACT_EMAIL}`);
@@ -236,11 +250,11 @@ app.post("/contact", async (req, res) => {
       message: "Message envoyé avec succès.",
     });
   } catch (err) {
-    console.error("❌ ERREUR ENVOI EMAIL :", err);
+    console.error("❌ ERREUR ENVOI EMAIL (Brevo) :", err);
 
     return res.status(500).json({
       error:
-        "Impossible d'envoyer le message. Vérifie la configuration Gmail sur Render.",
+        "Impossible d'envoyer le message. Vérifie la configuration Brevo sur Render (BREVO_API_KEY, BREVO_SENDER_EMAIL vérifié).",
     });
   }
 });
@@ -673,7 +687,7 @@ app.get("/", (req, res) => {
     ok: true,
     message: "Backend market place shop : en ligne.",
     database: db ? "connectée" : "non connectée (MONGODB_URI manquant ?)",
-    email: mailTransporter ? "configuré" : "non configuré (GMAIL_USER / GMAIL_APP_PASSWORD manquants ?)",
+    email: BREVO_API_KEY ? "configuré (Brevo)" : "non configuré (BREVO_API_KEY manquant ?)",
   });
 });
 
