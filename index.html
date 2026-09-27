@@ -545,7 +545,6 @@ let state = {
   query: "",
   categoryFilter: "Toutes",
   sortBy: "recent",
-  showFavoritesOnly: false,
 };
 
 const currency = (n) => n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
@@ -624,7 +623,7 @@ function toggleFavorite(id){
   saveFavorites();
   render();
 }
-function toggleFavoritesOnly(){ state.showFavoritesOnly = !state.showFavoritesOnly; render(); }
+function goFavorites(){ setView('favorites'); }
 
 state.reviews = loadReviews();
 state.favorites = loadFavorites();
@@ -884,9 +883,6 @@ function setSortBy(v){ state.sortBy = v; render(); }
 
 function filteredProducts(){
   let list = state.products.slice();
-  if (state.showFavoritesOnly){
-    list = list.filter(p => isFavorite(p.id));
-  }
   if (state.query.trim()){
     const q = state.query.trim().toLowerCase();
     list = list.filter(p =>
@@ -925,9 +921,9 @@ function escapeHtml(str){
 
 function renderHeaderActions(){
   const el = document.getElementById('headerActions');
-  const fav = state.showFavoritesOnly;
+  const fav = state.view === 'favorites';
   let html = `
-    <button class="btn fav-toggle${fav ? ' active' : ''}" onclick="toggleFavoritesOnly()">${fav ? '♥' : '♡'} Mes favoris${state.favorites.length ? ` (${state.favorites.length})` : ''}</button>
+    <button class="btn fav-toggle${fav ? ' active' : ''}" onclick="goFavorites()">${fav ? '♥' : '♡'} Mes favoris${state.favorites.length ? ` (${state.favorites.length})` : ''}</button>
     <button class="btn btn-contact" onclick="setView('contact')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;vertical-align:-2px;margin-right:5px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Nous contacter</button>`;
   el.innerHTML = html;
 
@@ -1026,10 +1022,24 @@ function renderShop(){
       ${filterBarHtml()}
       <p class="result-count">${results.length} article${results.length>1?'s':''} trouvé${results.length>1?'s':''}</p>
       ${results.length===0
-        ? `<p style="opacity:.6;">${state.showFavoritesOnly ? "Vous n'avez pas encore d'articles favoris. Cliquez sur le cœur d'un article pour l'ajouter ici." : "Aucun article ne correspond à votre recherche. Essayez un autre mot-clé ou une autre catégorie."}</p>`
+        ? `<p style="opacity:.6;">Aucun article ne correspond à votre recherche. Essayez un autre mot-clé ou une autre catégorie.</p>`
         : `<div class="grid">${results.map(p=>productCardHtml(p,false)).join("")}</div>`}
       ${adSlotHtml('ad-bottom')}
       ${ratingsSectionHtml()}
+    </div>
+  `;
+}
+
+function renderFavorites(){
+  const favProducts = state.products.filter(p => isFavorite(p.id));
+  return `
+    <div style="padding-top:28px;">
+      <button class="back-link" onclick="setView('shop')">← Retour à la boutique</button>
+      <h2 class="section-title">Mes favoris</h2>
+      <p class="section-sub">${favProducts.length} article${favProducts.length>1?'s':''} enregistré${favProducts.length>1?'s':''}.</p>
+      ${favProducts.length===0
+        ? `<p style="opacity:.6;">Vous n'avez pas encore d'articles favoris. Cliquez sur le cœur d'un article pour l'ajouter ici.</p>`
+        : `<div class="grid">${favProducts.map(p=>productCardHtml(p,false)).join("")}</div>`}
     </div>
   `;
 }
@@ -1262,6 +1272,7 @@ function render(){
   renderHeaderActions();
   const main = document.getElementById('main');
   if (state.view === "shop") main.innerHTML = renderShop();
+  else if (state.view === "favorites") main.innerHTML = renderFavorites();
   else if (state.view === "admin") main.innerHTML = renderAdmin();
   else if (state.view === "checkout") main.innerHTML = renderCheckout();
   else if (state.view === "confirmation") main.innerHTML = renderConfirmation();
