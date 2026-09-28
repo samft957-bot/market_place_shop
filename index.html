@@ -803,12 +803,8 @@ async function toggleSeller(){
 function addToCart(id){
   const p = state.products.find(x => x.id === id);
   if (!p) return;
-  const already = state.cart.find(x => x.id === id);
-  if (already){
-    already.qty += 1;
-  } else {
-    state.cart.push({ ...p, qty: 1 });
-  }
+  // Un seul article à la fois : l'ajout remplace le contenu du panier
+  state.cart = [{ ...p, qty: 1 }];
   state.cartOpen = true;
   render();
 }
@@ -1202,7 +1198,7 @@ function renderCartDrawer(){
   const total = state.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
 
   const body = state.cart.length === 0
-    ? `<p style="opacity:.65;font-size:14px;padding-top:8px;">Le panier est vide pour l'instant. Ajoutez plusieurs articles pour les acheter ensemble.</p>`
+    ? `<p style="opacity:.65;font-size:14px;padding-top:8px;">Le panier est vide pour l'instant. Un seul article peut être acheté à la fois.</p>`
     : state.cart.map(item => `
         <div class="cart-item">
           <div class="thumb">
@@ -1213,13 +1209,7 @@ function renderCartDrawer(){
 
           <div class="info">
             <div class="n">${escapeHtml(item.name)}</div>
-            <div class="p">${currency(item.price)} / unité</div>
-
-            <div class="cart-qty">
-              <button class="qty-btn" onclick="changeCartQty('${item.id}', -1)" aria-label="Diminuer la quantité">−</button>
-              <span>${item.qty}</span>
-              <button class="qty-btn" onclick="changeCartQty('${item.id}', 1)" aria-label="Augmenter la quantité">+</button>
-            </div>
+            <div class="p">1 article</div>
           </div>
 
           <div class="cart-item-total">${currency(item.price * item.qty)}</div>
