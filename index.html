@@ -30,6 +30,8 @@
     --sage:#1B4B91;
     --line:#C6D8EE;
     --white:#FBFDFF;
+    --danger:#C4304A;
+    --shadow-ink:16,27,45;
     --hero-photo: url("https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1600&q=80&auto=format&fit=crop");
     --gutter:clamp(14px,4vw,56px);
   }
@@ -130,69 +132,87 @@
       box-shadow .16s ease,
       filter .16s ease,
       background .16s ease;
-    box-shadow:0 3px 0 rgba(28,38,32,.12);
+    box-shadow:0 3px 0 rgba(var(--shadow-ink),.14);
   }
   .btn:hover{
     transform:translateY(-2px);
-    box-shadow:0 6px 14px rgba(28,38,32,.16);
+    box-shadow:0 6px 14px rgba(var(--shadow-ink),.18);
   }
   .btn:active{
     transform:translateY(1px);
-    box-shadow:0 2px 4px rgba(28,38,32,.12);
+    box-shadow:0 2px 4px rgba(var(--shadow-ink),.14);
   }
-  .btn:disabled{opacity:.5;cursor:not-allowed;transform:none !important;box-shadow:0 3px 0 rgba(28,38,32,.12) !important;filter:none !important;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;transform:none !important;box-shadow:0 3px 0 rgba(var(--shadow-ink),.14) !important;filter:none !important;}
 
   .btn-primary{
     background:linear-gradient(135deg,#1B2C4D 0%,var(--ink) 100%);
     color:var(--paper);
     border-color:var(--ink);
-    box-shadow:0 4px 0 #0f150f, 0 8px 18px rgba(28,38,32,.22);
+    box-shadow:0 4px 0 #0A1220, 0 8px 18px rgba(var(--shadow-ink),.24);
   }
   .btn-primary:hover{
     filter:brightness(1.12);
-    box-shadow:0 6px 0 #0f150f, 0 10px 22px rgba(28,38,32,.28);
+    box-shadow:0 6px 0 #0A1220, 0 10px 22px rgba(var(--shadow-ink),.30);
   }
 
   .btn-accent{
-    background:linear-gradient(135deg,#3B82F6,#1D4ED8);
-    color:#FBFDFF;
-    border-color:var(--ink);
-    box-shadow:0 3px 0 rgba(0,0,0,.18);
+    background:linear-gradient(135deg,#3C6FEA 0%,var(--brick) 55%,#2350C4 100%);
+    color:var(--white);
+    border-color:#163D8C;
+    box-shadow:0 4px 0 #163D8C, 0 8px 18px rgba(46,94,224,.28);
     font-weight:700;
   }
-  .btn-accent:hover{filter:brightness(1.1);}
+  .btn-accent:hover{
+    filter:brightness(1.08);
+    box-shadow:0 6px 0 #163D8C, 0 10px 22px rgba(46,94,224,.34);
+  }
+
+  .btn-buy{
+    background:linear-gradient(135deg,#2E5EE0 0%,#1B4B91 100%);
+    color:var(--white);
+    border:1.5px solid #123566;
+    font-weight:800;
+    letter-spacing:.2px;
+    box-shadow:0 4px 0 #0F2C57, 0 8px 18px rgba(27,75,145,.32), inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  .btn-buy:hover{
+    filter:brightness(1.1);
+    box-shadow:0 6px 0 #0F2C57, 0 10px 22px rgba(27,75,145,.38), inset 0 1px 0 rgba(255,255,255,.28);
+  }
+  .btn-buy:active{
+    box-shadow:0 2px 0 #0F2C57, 0 4px 8px rgba(27,75,145,.3);
+  }
 
   .btn-cart-add{
-    background:linear-gradient(135deg,#8FAF82 0%,#5C7856 55%,#3E5238 100%);
-    color:#F6F3E9;
-    border-color:#2E3E2A;
-    box-shadow:0 4px 0 #2E3E2A, 0 8px 18px rgba(62,82,56,.28);
-    font-weight:800;
+    background:linear-gradient(135deg,var(--mustard) 0%,var(--brick) 100%);
+    color:var(--white);
+    border:1.5px solid #1B4B91;
+    box-shadow:0 4px 0 #1B4B91, 0 8px 18px rgba(31,167,255,.28);
   }
   .btn-cart-add:hover{
-    filter:brightness(1.1) saturate(1.05);
-    box-shadow:0 6px 0 #2E3E2A, 0 10px 22px rgba(62,82,56,.34);
+    filter:brightness(1.08) saturate(1.05);
+    box-shadow:0 6px 0 #1B4B91, 0 10px 22px rgba(31,167,255,.34);
   }
 
   .btn-danger{
     background:var(--white);
-    color:var(--brick);
-    border-color:var(--brick);
-    box-shadow:0 3px 0 rgba(174,74,60,.25);
+    color:var(--danger);
+    border-color:var(--danger);
+    box-shadow:0 3px 0 rgba(196,48,74,.25);
   }
   .btn-danger:hover{
-    background:var(--brick);
+    background:var(--danger);
     color:var(--white);
-    box-shadow:0 5px 0 #7c3428, 0 8px 16px rgba(174,74,60,.28);
+    box-shadow:0 5px 0 #8A2137, 0 8px 16px rgba(196,48,74,.28);
   }
 
   .btn-sm{
     padding:7px 13px;
     font-size:12.5px;
-    box-shadow:0 2px 0 rgba(28,38,32,.12);
+    box-shadow:0 2px 0 rgba(var(--shadow-ink),.14);
   }
-  .btn-sm:hover{box-shadow:0 4px 10px rgba(28,38,32,.16);}
-  .btn-sm.btn-danger:hover{box-shadow:0 4px 10px rgba(174,74,60,.26);}
+  .btn-sm:hover{box-shadow:0 4px 10px rgba(var(--shadow-ink),.18);}
+  .btn-sm.btn-danger:hover{box-shadow:0 4px 10px rgba(196,48,74,.26);}
 
   /* Bouton Contact (en-tête) */
   .header-actions .btn-contact{
@@ -206,22 +226,30 @@
     box-shadow:0 6px 0 #0F2C57, 0 10px 22px rgba(27,75,145,.3);
   }
 
-  /* Bouton Panier (en-tête) — non utilisé, conservé pour compatibilité */
+  /* Bouton Panier (en-tête) */
   .header-actions .btn-cart{
-    background:linear-gradient(135deg,#3FA9F5 0%,#1FA7FF 55%,#1665C9 100%);
-    color:#0B1B33;
-    border-color:#0F4C8C;
-    box-shadow:0 4px 0 #0F4C8C, 0 8px 18px rgba(31,167,255,.22);
+    background:linear-gradient(135deg,var(--mustard) 0%,var(--brick) 100%);
+    color:var(--white);
+    border:1.5px solid #1B4B91;
+    box-shadow:0 4px 0 #1B4B91, 0 8px 18px rgba(31,167,255,.30), inset 0 1px 0 rgba(255,255,255,.25);
     font-weight:800;
   }
   .header-actions .btn-cart:hover{
-    filter:brightness(1.08) saturate(1.08);
-    box-shadow:0 6px 0 #0F4C8C, 0 10px 22px rgba(31,167,255,.28);
+    filter:brightness(1.08) saturate(1.05);
+    transform:translateY(-1px);
+    box-shadow:0 6px 0 #1B4B91, 0 10px 22px rgba(31,167,255,.36), inset 0 1px 0 rgba(255,255,255,.3);
   }
-  .header-actions .btn-cart.btn-accent{
-    background:linear-gradient(135deg,#8FD3FF 0%,#3B82F6 50%,#1D4ED8 100%);
-    color:#0B1B33;
-    border-color:#123566;
+  .header-actions .btn-cart{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+  }
+  .header-actions .btn-cart .cart-ico{
+    width:21px;
+    height:21px;
+    flex-shrink:0;
+    color:#fff;
+    filter:drop-shadow(0 1px 1px rgba(16,27,45,.45));
   }
 
   /* Puces de filtre : cohérentes avec le nouveau système, plus discrètes */
@@ -233,7 +261,7 @@
     opacity:1;
     transform:translateY(-1px);
   }
-  .filter-chip.active{box-shadow:0 3px 0 rgba(28,38,32,.15);}
+  .filter-chip.active{box-shadow:0 3px 0 rgba(var(--shadow-ink),.16);}
 
   /* Bouton de fermeture du panier : cercle discret */
   .drawer-close{
@@ -311,12 +339,12 @@
   .filter-chip.active{background:var(--ink);color:var(--paper);border-color:var(--ink);opacity:1;font-weight:600;}
   .header-actions .btn.fav-toggle{
     background:var(--white); color:var(--brick); border-color:var(--brick);
-    box-shadow:0 3px 0 rgba(174,74,60,.2);
+    box-shadow:0 3px 0 rgba(46,94,224,.22);
   }
   .header-actions .btn.fav-toggle.active{
-    background:linear-gradient(135deg,#F0576B,#C4304A);
-    color:#fff; border-color:#8A2137;
-    box-shadow:0 3px 0 rgba(0,0,0,.18);
+    background:linear-gradient(135deg,#3C6FEA 0%,var(--brick) 55%,#2350C4 100%);
+    color:var(--white); border-color:#163D8C;
+    box-shadow:0 3px 0 #163D8C;
   }
   .header-actions .btn.fav-toggle:hover{filter:brightness(1.06);}
   .result-count{font-size:12.5px;opacity:.6;margin:-8px 0 18px;}
@@ -435,6 +463,38 @@
   .cart-item .info{flex:1;min-width:0;}
   .cart-item .info .n{font-weight:500;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .cart-item .info .p{font-size:12px;opacity:.65;}
+  .cart-qty{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    margin-top:7px;
+  }
+  .qty-btn{
+    width:28px;
+    height:28px;
+    border:1.5px solid var(--line);
+    border-radius:6px;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:18px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .qty-btn:hover{
+    background:var(--paper-deep);
+    transform:translateY(-1px);
+  }
+  .cart-item-total{
+    font-weight:800;
+    font-size:13px;
+    white-space:nowrap;
+  }
+  .header-actions .btn-cart{
+    white-space:nowrap;
+  }
   @media (hover:none){
     .btn, .filter-chip{min-height:40px;}
   }
@@ -760,8 +820,36 @@ function buyNow(id){
   goCheckout();
 }
 
-function setQty(id, qty){ if (qty <= 0) { state.cart = state.cart.filter(x => x.id !== id); } render(); }
-function removeFromCart(id){ state.cart = state.cart.filter(x => x.id !== id); render(); }
+function changeCartQty(id, delta){
+  const item = state.cart.find(x => x.id === id);
+  if (!item) return;
+
+  item.qty = Math.max(0, Number(item.qty || 0) + Number(delta || 0));
+
+  if (item.qty === 0){
+    state.cart = state.cart.filter(x => x.id !== id);
+  }
+
+  render();
+}
+
+function setQty(id, qty){
+  const item = state.cart.find(x => x.id === id);
+  if (!item) return;
+
+  item.qty = Math.max(0, Number(qty) || 0);
+
+  if (item.qty === 0){
+    state.cart = state.cart.filter(x => x.id !== id);
+  }
+
+  render();
+}
+
+function removeFromCart(id){
+  state.cart = state.cart.filter(x => x.id !== id);
+  render();
+}
 
 function startEdit(id){
   state.editing = id ? state.products.find(p => p.id === id) : "new";
@@ -922,8 +1010,12 @@ function escapeHtml(str){
 function renderHeaderActions(){
   const el = document.getElementById('headerActions');
   const fav = state.view === 'favorites';
+  const cartCount = state.cart.reduce((sum, item) => sum + Number(item.qty || 0), 0);
   let html = `
     <button class="btn fav-toggle${fav ? ' active' : ''}" onclick="goFavorites()">${fav ? '♥' : '♡'} Mes favoris${state.favorites.length ? ` (${state.favorites.length})` : ''}</button>
+    <button class="btn btn-cart" onclick="toggleCart()" aria-label="Ouvrir le panier">
+      <svg class="cart-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.6"/><circle cx="18" cy="20" r="1.6"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L21 7H6"/></svg>Panier${cartCount ? ` (${cartCount})` : ''}
+    </button>
     <button class="btn btn-contact" onclick="setView('contact')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;vertical-align:-2px;margin-right:5px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Nous contacter</button>`;
   el.innerHTML = html;
 
@@ -949,10 +1041,15 @@ function trustStripHtml(){
 
 function productCardHtml(p, sellerView){
   const photo = p.photo ? `<img src="${p.photo}" alt="${escapeHtml(p.name)}" loading="lazy">` : `<div class="placeholder">Pas de photo</div>`;
-  const buyAction = p.paymentLink ? `window.open('${p.paymentLink.replace(/'/g, "&#39;")}', '_blank')` : `buyNow('${p.id}')`;
   let buyBtn;
-  if (sellerView){ buyBtn = ""; }
-  else { buyBtn = `<button class="btn btn-accent" onclick="${buyAction}">Acheter</button>`; }
+  if (sellerView){
+    buyBtn = "";
+  } else {
+    buyBtn = `<div class="product-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-buy" onclick="buyNow('${p.id}')">Acheter</button>
+      <button class="btn btn-cart-add" onclick="addToCart('${p.id}')">Ajouter au panier</button>
+    </div>`;
+  }
   const actions = sellerView
     ? `<div style="display:flex;gap:6px;">
          <button class="btn btn-sm" onclick="startEdit('${p.id}')">Modifier</button>
@@ -1101,34 +1198,59 @@ function renderAdmin(){
 }
 
 function renderCartDrawer(){
-  const count = state.cart.reduce((s,i)=>s+i.qty,0);
-  const total = state.cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const count = state.cart.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const total = state.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
+
   const body = state.cart.length === 0
-    ? `<p style="opacity:.65;font-size:14px;padding-top:8px;">Le panier est vide pour l'instant. Ajoutez un article pour le voir apparaître ici.</p>`
+    ? `<p style="opacity:.65;font-size:14px;padding-top:8px;">Le panier est vide pour l'instant. Ajoutez plusieurs articles pour les acheter ensemble.</p>`
     : state.cart.map(item => `
         <div class="cart-item">
-          <div class="thumb">${item.photo ? `<img src="${item.photo}">` : `<div class="placeholder" style="font-size:9px;">Pas de photo</div>`}</div>
+          <div class="thumb">
+            ${item.photo
+              ? `<img src="${item.photo}" alt="${escapeHtml(item.name)}">`
+              : `<div class="placeholder" style="font-size:9px;">Pas de photo</div>`}
+          </div>
+
           <div class="info">
             <div class="n">${escapeHtml(item.name)}</div>
             <div class="p">${currency(item.price)} / unité</div>
+
+            <div class="cart-qty">
+              <button class="qty-btn" onclick="changeCartQty('${item.id}', -1)" aria-label="Diminuer la quantité">−</button>
+              <span>${item.qty}</span>
+              <button class="qty-btn" onclick="changeCartQty('${item.id}', 1)" aria-label="Augmenter la quantité">+</button>
+            </div>
           </div>
-          <button class="btn btn-danger btn-sm" onclick="removeFromCart('${item.id}')">✕</button>
+
+          <div class="cart-item-total">${currency(item.price * item.qty)}</div>
+
+          <button class="btn btn-danger btn-sm" onclick="removeFromCart('${item.id}')" aria-label="Supprimer ${escapeHtml(item.name)}">✕</button>
         </div>
       `).join("");
+
   return `
     <div class="drawer-head">
-      <h2>Panier${count>0?` (${count})`:""}</h2>
+      <h2>Panier${count > 0 ? ` (${count})` : ""}</h2>
       <button class="drawer-close" onclick="toggleCart()" aria-label="Fermer le panier">×</button>
     </div>
-    <div class="drawer-body">${body}
-      ${state.cart.length > 0 ? `<p class="cart-limit-note">Vous pouvez ajouter plusieurs articles à votre panier.</p>` : ""}
+
+    <div class="drawer-body">
+      ${body}
+      ${state.cart.length > 0
+        ? `<p class="cart-limit-note">Plusieurs articles peuvent être achetés dans la même commande.</p>`
+        : ""}
     </div>
+
     <div class="drawer-foot">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <span class="serif" style="font-size:18px;">Total : ${currency(total)}</span>
+        <span style="font-size:12px;opacity:.65;">${count} article${count > 1 ? "s" : ""}</span>
       </div>
+
       <div style="display:flex;flex-direction:column;gap:8px;">
-        <button class="btn btn-accent" ${state.cart.length===0?'disabled':''} onclick="goCheckout()">Passer au paiement</button>
+        <button class="btn btn-accent" ${state.cart.length === 0 ? 'disabled' : ''} onclick="goCheckout()">
+          Passer au paiement
+        </button>
         <button class="btn" onclick="toggleCart()">Continuer mes achats</button>
       </div>
     </div>
